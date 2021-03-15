@@ -1,7 +1,7 @@
 .cproject
 .project
 .settings/*
-gpxFileTool
+gpxFileTool*
 *.d
 *.o
 
