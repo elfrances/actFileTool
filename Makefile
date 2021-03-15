@@ -44,7 +44,7 @@ gpxFileTool: $(OBJECTS) Makefile
 	$(SHELL) -ec 'echo "const char *buildInfo = \"built on `date` by `whoami`@`hostname`\";" >> build_info.c'
 	$(CC) $(CFLAGS) -o $(OBJ_DIR)/build_info.o -c build_info.c
 	$(RM) build_info.c
-	$(CC) $(LDFLAGS) -o $(BIN_DIR)/$@ $(OBJECTS) $(OBJ_DIR)/build_info.o 
+	$(CC) $(LDFLAGS) -o $(BIN_DIR)/$@ $(OBJECTS) $(OBJ_DIR)/build_info.o -lm
 
 clean:
 	$(RM) $(OBJECTS) $(OBJ_DIR)/build_info.o $(DEP_DIR)/*.d $(BIN_DIR)/gpxFileTool
