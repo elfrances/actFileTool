@@ -53,6 +53,11 @@ extern const char *buildInfo;
 //    </trkseg>
 //  </trk>
 
+typedef enum Bool {
+    false = 0,
+    true = 1
+} Bool;
+
 // A single GPS Track Point
 typedef struct TrkPt {
     TAILQ_ENTRY(TrkPt)   tqEntry;   // node in the trkPtList
@@ -72,6 +77,7 @@ typedef struct TrkPt {
     int power;          // in watts
 
     // Computed metrics
+    Bool adjGrade;      // grade was adjusted
     time_t deltaT;      // time diff with previous point (in seconds)
     double deltaP;      // position diff (distance) with previous point (in meters)
     double deltaE;      // elevation diff with previous point (in meters)
@@ -83,10 +89,6 @@ typedef struct TrkPt {
 
 // A GPS Track (sequence of Track Points)
 typedef struct GpsTrk {
-    // General data from GPX file
-    const char *name;   // <name>
-    int type;           // <type>
-
     // List of TrkPt's
     TAILQ_HEAD(TrkPtList, TrkPt) trkPtList;
 
@@ -135,26 +137,25 @@ typedef enum OutFmt {
 #define OM_ALL      0x0f    // all metrics
 
 typedef struct CmdArgs {
-    FILE *inFile;
-    FILE *outFile;
+    FILE *inFile;       // input file
     double maxGrade;    // max grade allowed (in %)
     double minGrade;    // min grade allowed (in %)
     double minSpeed;    // min speed below which we assume we are stopped
+    const char *name;   // <name> tag
+    FILE *outFile;      // output file
     OutFmt outFmt;      // format of the output data (csv, gpx)
     int outMask;        // bitmask of optional metrics to be included in the output
-    int quiet;          // don't print any warning messages
+    Bool quiet;         // don't print any warning messages
     int rangeFrom;      // start point (inclusive)
     int rangeTo;        // end point (inclusive)
-    int relTime;        // show relative timestamps
-    int summary;        // show data summary
+    Bool relTime;       // show relative timestamps
+    Bool summary;       // show data summary
     int smaWindow;      // size of the moving average window
-    int trim;           // trim points
+    Bool trim;          // trim points
 } CmdArgs;
 
 static const char *xmlHeader = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
 static const char *gpxHeader = "<gpx creator=\"gpxFileTool version " PROGRAM_VERSION "\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\" version=\"1.1\" xmlns=\"http://www.topografix.com/GPX/1/1\">";
-static const int false = 0;
-static const int true = 1;
 static const double degToRad = (double) 0.01745329252;  // decimal degrees to radians
 static const double earthMeanRadius = (double) 6372797.560856;  // in meters
 static const double stoppedSpeedThreshold = (double) 0.5;   // in km/h
@@ -177,6 +178,9 @@ static const char *help =
         "    --min-speed <value>\n"
         "        Specifies the minimum speed below which it is assumed there is\n"
         "        no movement.\n"
+        "    --name <name>\n"
+        "        String to use for the <name> tag of the track in the output\n"
+        "        GPX file.\n"
         "    --sma-window <value>\n"
         "        Size of the window used to compute the Simple Moving Average\n"
         "        of the elevation values, in order to smooth them out.\n"
@@ -251,6 +255,12 @@ static int parseArgs(int argc, char *argv[], CmdArgs *pArgs)
             const char *minSpeed = argv[++n];
             if (sscanf(minSpeed, "%le", &pArgs->minSpeed) != 1) {
                 fprintf(stderr, "Invalid argument: %s %s\n", arg, minSpeed);
+                return -1;
+            }
+        } else if (strcmp(arg, "--name") == 0) {
+            const char *name = argv[++n];
+            if ((pArgs->name = strdup(name)) == NULL) {
+                fprintf(stderr, "Can't copy name argument: %s\n", name);
                 return -1;
             }
         } else if (strcmp(arg, "--quiet") == 0) {
@@ -568,36 +578,42 @@ static double compDistance(const TrkPt *p1, const TrkPt *p2)
     return (c * earthMeanRadius);
 }
 
-// Compute the SMA of the elevation value of the given point.
+// Compute the SMA of the grade value of the given point.
 // The SMA uses a window size of N points, where N is an even
 // value. The average is computed using the N/2 values before
 // the point, the value of the point, and the N/2 values after
 // the point, for a total of N+1 points:
 //
 //   <-- N/2 --> <-- N/2 -->
-//   +--------- p ---------+
+//   +----------+----------+
+//              p
 //
-static void simpleMovingAverage(GpsTrk *pTrk, TrkPt *p, int smaWindow)
+static void compGradeSma(GpsTrk *pTrk, TrkPt *p, int smaWindow)
 {
     int i;
     int n = smaWindow / 2;
-    double eleSum = p->elevation;
-    double numPoints = 1.0;
+    int numPoints = 1;
+    double gradeSum = p->grade;
     TrkPt *tp;
 
     // Points before the given point
     for (i = 0, tp = TAILQ_PREV(p, TrkPtList, tqEntry); (i < n) && (tp != NULL); i++, tp = TAILQ_PREV(tp, TrkPtList, tqEntry)) {
-        eleSum += tp->elevation;
+        gradeSum += tp->grade;
         numPoints++;
     }
 
     // Points after the given point
     for (i = 0, tp = TAILQ_NEXT(p, tqEntry); (i < n) && (tp != NULL); i++, tp = TAILQ_NEXT(tp, tqEntry)) {
-        eleSum += tp->elevation;
+        gradeSum += tp->grade;
         numPoints++;
     }
 
-    p->elevation = eleSum / numPoints;
+    // Override the original grade value with the
+    // computed SMA value.
+    p->grade = gradeSum / numPoints;
+
+    // Flag that this point had its grade adjusted
+    p->adjGrade = true;
 }
 
 static int pointWithinRange(const CmdArgs *pArgs, const TrkPt *p)
@@ -618,61 +634,34 @@ static int pointWithinRange(const CmdArgs *pArgs, const TrkPt *p)
 
 static void adjMaxGrade(GpsTrk *pTrk, CmdArgs *pArgs, TrkPt *p1, TrkPt *p2)
 {
-    double adjP2Elev;
-
     if (!pArgs->quiet) {
         fprintf(stderr, "WARNING: TrkPt at line #%u has a grade of %.2lf%% that exceeds the max value %.2lf%% !\n",
                 p2->lineNum, p2->grade, pArgs->maxGrade);
     }
 
-    // Figure out the actual elevation value to cap the
-    // grade to the max allowed level. This is not so easy,
-    // because the run value we would normally use to
-    // compute the elevation difference (rise) at the max
-    // grade level, was originally computed from the rise
-    // value we are trying to adjust!
-    p2->deltaE = (p2->run * pArgs->maxGrade) / 100.0;
-    adjP2Elev = p1->elevation + p2->deltaE;
-
-    if (!pArgs->quiet) {
-        fprintf(stderr, "WARNING: Elevation value adjusted from %.10lf m to %.10lf m (%.10lf m)\n",
-                p2->elevation, adjP2Elev, (adjP2Elev - p2->elevation));
-    }
-
-    // Override original values with the adjusted values
-    p2->elevation = adjP2Elev;
+    // Override original value with the max value
     p2->grade = pArgs->maxGrade;
 
-    pTrk->numElevAdj++;
+    // Flag that this point had its grade adjusted
+    p2->adjGrade = true;
 }
 
 static void adjMinGrade(GpsTrk *pTrk, CmdArgs *pArgs, TrkPt *p1, TrkPt *p2)
 {
-    double adjP2Elev;
-
     if (!pArgs->quiet) {
         fprintf(stderr, "WARNING: TrkPt at line #%u has a grade of %.2lf%% that exceeds the min value %.2lf%% !\n",
                 p2->lineNum, p2->grade, pArgs->minGrade);
+
     }
 
-    // Figure out the actual elevation value to
-    // cap the grade to the min allowed...
-    p2->deltaE = (p2->run * pArgs->minGrade) / 100.0;
-    adjP2Elev = p1->elevation + p2->deltaE;
-
-    if (!pArgs->quiet) {
-        fprintf(stderr, "WARNING: Elevation value adjusted from %.10lf m to %.10lf m (%.10lf m)\n",
-                p2->elevation, adjP2Elev, (adjP2Elev - p2->elevation));
-    }
-
-    // Override original values with the adjusted values
-    p2->elevation = adjP2Elev;
+    // Override original value with the min value
     p2->grade = pArgs->minGrade;
 
-    pTrk->numElevAdj++;
+    // Flag that this point had its grade adjusted
+    p2->adjGrade = true;
 }
 
-static int compData(GpsTrk *pTrk, CmdArgs *pArgs)
+static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
 {
     TrkPt *p1 = NULL;   // previous TrkPt
     TrkPt *p2 = NULL;   // current TrkPt
@@ -684,6 +673,9 @@ static int compData(GpsTrk *pTrk, CmdArgs *pArgs)
             // Compute the position difference (distance) between
             // the two points.
             p2->deltaP = compDistance(p1, p2);
+
+            // Update the total distance
+            pTrk->distance += p2->deltaP;
 
             // Time interval between points. Ideally fixed at
             // 1-sec, but some GPS devices (e.g. Garmin Edge)
@@ -705,19 +697,11 @@ static int compData(GpsTrk *pTrk, CmdArgs *pArgs)
             if (p2->deltaP != 0.0) {
                 double rise;
 
-                if (pArgs->smaWindow != 0) {
-                    // Compute the SMA of the elevation value
-                    simpleMovingAverage(pTrk, p2, pArgs->smaWindow);
-                }
-
                 // Elevation difference (can be negative)
                 p2->deltaE = p2->elevation - p1->elevation;
 
                 // The rise is always positive!
                 rise = fabs(p2->deltaE);
-
-                // Update the running distance value
-                pTrk->distance += p2->deltaP;
 
                 // Set the distance (from the start) of this
                 // point.
@@ -725,12 +709,14 @@ static int compData(GpsTrk *pTrk, CmdArgs *pArgs)
 
                 // Compute the speed as "distance over time" and
                 // convert it to km/h.
-                p2->speed = (p2->deltaP / (double) p2->deltaT) * 3.6;   // in [km/h]
+                p2->speed = (p2->deltaP / (double) p2->deltaT) * 3.6;
 
                 if (p2->deltaP > rise) {
                     // Use Pythagoras's Theorem to compute the horizontal
                     // distance (run) based on the distance (hypotenuse)
-                    // and the elevation difference (rise).
+                    // and the elevation difference (rise). Notice that
+                    // the rise value inherits whatever error the elevation
+                    // value may have...
                     //
                     //                 p2 +
                     //                   /|
@@ -753,6 +739,7 @@ static int compData(GpsTrk *pTrk, CmdArgs *pArgs)
                         // Hu? This should not happen!
                         fprintf(stderr, "SPONG! TrkPt at line #%u has a negative runSquare value ! (distance=%.10lf rise=%.10lf runSquare=%.10lf)\n",
                                 p2->lineNum, distance, rise, runSquare);
+                        return -1;
                     }
 
                     if (p2->run != 0.0) {
@@ -771,37 +758,6 @@ static int compData(GpsTrk *pTrk, CmdArgs *pArgs)
                         p2->elevation = p1->elevation;
                         p2->speed = p1->speed;
                         p2->grade = p1->grade;
-                    }
-
-                    // See if we need to limit the computed grade
-                    if ((pArgs->maxGrade != 0.0) &&
-                        pointWithinRange(pArgs, p2) &&
-                        (p2->grade > pArgs->maxGrade)) {
-                        adjMaxGrade(pTrk, pArgs, p1, p2);
-                    } else if ((pArgs->minGrade != 0.0) &&
-                               pointWithinRange(pArgs, p2) &&
-                               (p2->grade < pArgs->minGrade)) {
-                        adjMinGrade(pTrk, pArgs, p1, p2);
-                    }
-
-                    // Update the running elevation gain/loss values
-                    if (p2->deltaE >= 0) {
-                        pTrk->elevGain += rise;
-                    } else {
-                        pTrk->elevLoss += rise;
-                    }
-
-                    // Update the min/max values
-                    if (p2->speed > pTrk->maxSpeed) {
-                         pTrk->maxSpeed = p2->speed;
-                         pTrk->maxSpeedTrkPt = p2;
-                    }
-                    if (p2->grade > pTrk->maxGrade) {
-                         pTrk->maxGrade = p2->grade;
-                         pTrk->maxGradeTrkPt = p2;
-                    } else if (p2->grade < pTrk->minGrade) {
-                        pTrk->minGrade = p2->grade;
-                        pTrk->minGradeTrkPt = p2;
                     }
                 } else {
                     // This is likely the product of bad GPS data. If the speed
@@ -823,6 +779,92 @@ static int compData(GpsTrk *pTrk, CmdArgs *pArgs)
             } else {
                 // Not moving!
                 pTrk->stoppedTime += p2->deltaT;
+            }
+        }
+
+        p1 = p2;
+    }
+
+    return 0;
+}
+
+static void adjElevation(GpsTrk *pTrk, TrkPt *p1, TrkPt *p2)
+{
+    double grade = (p2->grade / 100.0); // in decimal (0.00 .. 1.00)
+    double grade2 = (grade * grade);    // grade squared
+    double deltaP2 = (p2->deltaP * p2->deltaP); // deltaP squared
+    double rise = sqrt((grade2 * deltaP2) / (1.0 + grade2));
+    double adjElev;
+
+    if (p2->deltaE >= 0.0) {
+        p2->deltaE = rise;
+    } else {
+        p2->deltaE = -rise;
+    }
+    adjElev = p1->elevation + p2->deltaE;
+    if (adjElev != p2->elevation) {
+        p2->elevation = adjElev;
+        pTrk->numElevAdj++;
+    }
+}
+
+static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
+{
+    TrkPt *p1 = NULL;   // previous TrkPt
+    TrkPt *p2 = NULL;   // current TrkPt
+
+    TAILQ_FOREACH(p2, &pTrk->trkPtList, tqEntry) {
+        if (p1 != NULL) {
+            if (pArgs->smaWindow != 0) {
+                // Compute the SMA of the grade value
+                compGradeSma(pTrk, p2, pArgs->smaWindow);
+            }
+
+            // See if we need to limit the max grade values
+            if ((pArgs->maxGrade != 0.0) &&
+                pointWithinRange(pArgs, p2) &&
+                (p2->grade > pArgs->maxGrade)) {
+                adjMaxGrade(pTrk, pArgs, p1, p2);
+            }
+
+            // See if we need to limit the min grade values
+            if ((pArgs->minGrade != 0.0) &&
+                pointWithinRange(pArgs, p2) &&
+                (p2->grade < pArgs->minGrade)) {
+                adjMinGrade(pTrk, pArgs, p1, p2);
+            }
+
+            // If necessary, correct the elevation value based
+            // on the adjusted grade value. We need to adjust
+            // the value of delatE, while the value of deltaP
+            // remains invariant; i.e. the deltaP vector needs
+            // to rotate along an arc so that its angle results
+            // in the adjusted grade value.
+            //
+            // deltaE^2 = (grade^2 x deltaP^2) / (1 + grade^2)
+            //
+            if (p2->adjGrade) {
+                adjElevation(pTrk, p1, p2);
+            }
+
+            // Update the rolling elevation gain/loss values
+            if (p2->deltaE >= 0) {
+                pTrk->elevGain += p2->deltaE;
+            } else {
+                pTrk->elevLoss -= p2->deltaE;
+            }
+
+            // Update the min/max values
+            if (p2->speed > pTrk->maxSpeed) {
+                 pTrk->maxSpeed = p2->speed;
+                 pTrk->maxSpeedTrkPt = p2;
+            }
+            if (p2->grade > pTrk->maxGrade) {
+                 pTrk->maxGrade = p2->grade;
+                 pTrk->maxGradeTrkPt = p2;
+            } else if (p2->grade < pTrk->minGrade) {
+                pTrk->minGrade = p2->grade;
+                pTrk->minGradeTrkPt = p2;
             }
         }
 
@@ -930,7 +972,9 @@ static void printGpxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
 
     // Print track
     fprintf(pArgs->outFile, "  <trk>\n");
-    fprintf(pArgs->outFile, "    <name>NoName</name>\n");
+    if (pArgs->name != NULL) {
+        fprintf(pArgs->outFile, "    <name>%s</name>\n", pArgs->name);
+    }
 
     // Print track segment
     fprintf(pArgs->outFile, "    <trkseg>\n");
@@ -941,7 +985,7 @@ static void printGpxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
         TAILQ_FOREACH(p, &pTrk->trkPtList, tqEntry) {
             strftime(timeBuf, sizeof (timeBuf), "%Y-%m-%dT%H:%M:%S", gmtime_r(&p->time, &brkDwnTime));
             fprintf(pArgs->outFile, "      <trkpt lat=\"%.10lf\" lon=\"%.10lf\">\n", p->latitude, p->longitude);
-            fprintf(pArgs->outFile, "        <ele>%.1lf</ele>\n", p->elevation);
+            fprintf(pArgs->outFile, "        <ele>%.10lf</ele>\n", p->elevation);
             fprintf(pArgs->outFile, "        <time>%sZ</time>\n", timeBuf);
 
             // Now the optional metrics
@@ -1023,7 +1067,10 @@ int main(int argc, char *argv[])
     // Parse the GPX input data
     if ((pTrk = parseFile(&cmdArgs)) != NULL) {
         // Compute the speed & grade data
-        compData(pTrk, &cmdArgs);
+        if (compDataPhase1(pTrk, &cmdArgs) == 0) {
+            // Do necessary adjustments
+            compDataPhase2(pTrk, &cmdArgs);
+        }
 
         // Generate the output data
         printOutput(pTrk, &cmdArgs);
