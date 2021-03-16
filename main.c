@@ -93,6 +93,10 @@ typedef struct GpsTrk {
     // Number of TrkPt's in trkPtList
     int numTrkPts;
 
+    // Number of TrkPt's that had their elevation values
+    // adjusted to match the min/max grade levels.
+    int numElevAdj;
+
     // Base time
     time_t baseTime;                // time reference to generate relative timestamps
 
@@ -115,13 +119,14 @@ typedef struct GpsTrk {
     const TrkPt *minGradeTrkPt;     // TrkPt with min grade value
 } GpsTrk;
 
+// Output file format
 typedef enum OutFmt {
     nil = 0,
     csv = 1,    // Comma-Separated-Values format
     gpx = 2     // GPS Exchange format
 } OutFmt;
 
-// Output bit masks
+// Output sensor data bit masks
 #define OM_NONE     0x00    // no metrics
 #define OM_ATEMP    0x01    // ambient temperature
 #define OM_CADENCE  0x02    // cadence
@@ -134,6 +139,7 @@ typedef struct CmdArgs {
     FILE *outFile;
     double maxGrade;    // max grade allowed (in %)
     double minGrade;    // min grade allowed (in %)
+    double minSpeed;    // min speed below which we assume we are stopped
     OutFmt outFmt;      // format of the output data (csv, gpx)
     int outMask;        // bitmask of optional metrics to be included in the output
     int quiet;          // don't print any warning messages
@@ -168,6 +174,9 @@ static const char *help =
         "    --min-grade <value>\n"
         "        Limit the minimum grade to the specified value. The elevation\n"
         "        values are adjusted accordingly.\n"
+        "    --min-speed <value>\n"
+        "        Specifies the minimum speed below which it is assumed there is\n"
+        "        no movement.\n"
         "    --sma-window <value>\n"
         "        Size of the window used to compute the Simple Moving Average\n"
         "        of the elevation values, in order to smooth them out.\n"
@@ -238,6 +247,12 @@ static int parseArgs(int argc, char *argv[], CmdArgs *pArgs)
                 fprintf(stderr, "Invalid argument: %s %s\n", arg, minGrade);
                 return -1;
             }
+        } else if (strcmp(arg, "--min-speed") == 0) {
+            const char *minSpeed = argv[++n];
+            if (sscanf(minSpeed, "%le", &pArgs->minSpeed) != 1) {
+                fprintf(stderr, "Invalid argument: %s %s\n", arg, minSpeed);
+                return -1;
+            }
         } else if (strcmp(arg, "--quiet") == 0) {
             pArgs->quiet = true;
         } else if (strcmp(arg, "--range") == 0) {
@@ -285,6 +300,7 @@ static int parseArgs(int argc, char *argv[], CmdArgs *pArgs)
             pArgs->relTime = true;
         } else if (strcmp(arg, "--summary") == 0) {
             pArgs->summary = true;
+            pArgs->relTime = true;  // force relative timestamps
         } else if (strcmp(arg, "--trim") == 0) {
             pArgs->trim = true;
         } else if (strcmp(arg, "--version") == 0) {
@@ -600,6 +616,62 @@ static int pointWithinRange(const CmdArgs *pArgs, const TrkPt *p)
     return false;
 }
 
+static void adjMaxGrade(GpsTrk *pTrk, CmdArgs *pArgs, TrkPt *p1, TrkPt *p2)
+{
+    double adjP2Elev;
+
+    if (!pArgs->quiet) {
+        fprintf(stderr, "WARNING: TrkPt at line #%u has a grade of %.2lf%% that exceeds the max value %.2lf%% !\n",
+                p2->lineNum, p2->grade, pArgs->maxGrade);
+    }
+
+    // Figure out the actual elevation value to cap the
+    // grade to the max allowed level. This is not so easy,
+    // because the run value we would normally use to
+    // compute the elevation difference (rise) at the max
+    // grade level, was originally computed from the rise
+    // value we are trying to adjust!
+    p2->deltaE = (p2->run * pArgs->maxGrade) / 100.0;
+    adjP2Elev = p1->elevation + p2->deltaE;
+
+    if (!pArgs->quiet) {
+        fprintf(stderr, "WARNING: Elevation value adjusted from %.10lf m to %.10lf m (%.10lf m)\n",
+                p2->elevation, adjP2Elev, (adjP2Elev - p2->elevation));
+    }
+
+    // Override original values with the adjusted values
+    p2->elevation = adjP2Elev;
+    p2->grade = pArgs->maxGrade;
+
+    pTrk->numElevAdj++;
+}
+
+static void adjMinGrade(GpsTrk *pTrk, CmdArgs *pArgs, TrkPt *p1, TrkPt *p2)
+{
+    double adjP2Elev;
+
+    if (!pArgs->quiet) {
+        fprintf(stderr, "WARNING: TrkPt at line #%u has a grade of %.2lf%% that exceeds the min value %.2lf%% !\n",
+                p2->lineNum, p2->grade, pArgs->minGrade);
+    }
+
+    // Figure out the actual elevation value to
+    // cap the grade to the min allowed...
+    p2->deltaE = (p2->run * pArgs->minGrade) / 100.0;
+    adjP2Elev = p1->elevation + p2->deltaE;
+
+    if (!pArgs->quiet) {
+        fprintf(stderr, "WARNING: Elevation value adjusted from %.10lf m to %.10lf m (%.10lf m)\n",
+                p2->elevation, adjP2Elev, (adjP2Elev - p2->elevation));
+    }
+
+    // Override original values with the adjusted values
+    p2->elevation = adjP2Elev;
+    p2->grade = pArgs->minGrade;
+
+    pTrk->numElevAdj++;
+}
+
 static int compData(GpsTrk *pTrk, CmdArgs *pArgs)
 {
     TrkPt *p1 = NULL;   // previous TrkPt
@@ -644,13 +716,8 @@ static int compData(GpsTrk *pTrk, CmdArgs *pArgs)
                 // The rise is always positive!
                 rise = fabs(p2->deltaE);
 
-                // Update the running sums
+                // Update the running distance value
                 pTrk->distance += p2->deltaP;
-                if (p2->deltaE >= 0) {
-                    pTrk->elevGain += rise;
-                } else {
-                    pTrk->elevLoss += rise;
-                }
 
                 // Set the distance (from the start) of this
                 // point.
@@ -710,47 +777,18 @@ static int compData(GpsTrk *pTrk, CmdArgs *pArgs)
                     if ((pArgs->maxGrade != 0.0) &&
                         pointWithinRange(pArgs, p2) &&
                         (p2->grade > pArgs->maxGrade)) {
-                        double adjP2Elev;
-
-                        if (!pArgs->quiet) {
-                            fprintf(stderr, "WARNING: TrkPt at line #%u has a grade of %.2lf%% that exceeds the max value %.2lf%% !\n",
-                                    p2->lineNum, p2->grade, pArgs->maxGrade);
-                        }
-
-                        // Figure out the actual elevation value to
-                        // cap the grade to the max allowed...
-                        p2->deltaE = (p2->run * pArgs->maxGrade) / 100.0;
-                        adjP2Elev = p1->elevation + p2->deltaE;
-
-                        if (!pArgs->quiet) {
-                            fprintf(stderr, "WARNING: Elevation value adjusted from %.10lf to %.10lf\n",
-                                    p2->elevation, adjP2Elev);
-                        }
-
-                        p2->elevation = adjP2Elev;
-                        p2->grade = pArgs->maxGrade;
+                        adjMaxGrade(pTrk, pArgs, p1, p2);
                     } else if ((pArgs->minGrade != 0.0) &&
                                pointWithinRange(pArgs, p2) &&
                                (p2->grade < pArgs->minGrade)) {
-                        double adjP2Elev;
+                        adjMinGrade(pTrk, pArgs, p1, p2);
+                    }
 
-                        if (!pArgs->quiet) {
-                            fprintf(stderr, "WARNING: TrkPt at line #%u has a grade of %.2lf%% that exceeds the min value %.2lf%% !\n",
-                                    p2->lineNum, p2->grade, pArgs->minGrade);
-                        }
-
-                        // Figure out the actual elevation value to
-                        // cap the grade to the min allowed...
-                        p2->deltaE = (p2->run * pArgs->minGrade) / 100.0;
-                        adjP2Elev = p1->elevation + p2->deltaE;
-
-                        if (!pArgs->quiet) {
-                            fprintf(stderr, "WARNING: Elevation value adjusted from %.10lf to %.10lf\n",
-                                    p2->elevation, adjP2Elev);
-                        }
-
-                        p2->elevation = adjP2Elev;
-                        p2->grade = pArgs->minGrade;
+                    // Update the running elevation gain/loss values
+                    if (p2->deltaE >= 0) {
+                        pTrk->elevGain += rise;
+                    } else {
+                        pTrk->elevLoss += rise;
                     }
 
                     // Update the min/max values
@@ -818,20 +856,26 @@ static void printSummary(GpsTrk *pTrk, CmdArgs *pArgs)
     sec = (pTrk->stoppedTime - (hr * 3600)) % 60;
     fprintf(pArgs->outFile, "stoppedTime: %02ld:%02ld:%02ld\n", hr, min, sec);
 
+    fprintf(pArgs->outFile, " numElevAdj: %d\n", pTrk->numElevAdj);
+
     fprintf(pArgs->outFile, "   distance: %.10lf km\n", (pTrk->distance / 1000.0));
     fprintf(pArgs->outFile, "   elevGain: %.10lf m\n", pTrk->elevGain);
     fprintf(pArgs->outFile, "   elevLoss: %.10lf m\n", pTrk->elevLoss);
     if ((p = pTrk->maxTimeIntTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "  maxDeltaT: %ld sec at TrkPt #%d (line #%d)\n", pTrk->maxDeltaT, p->index, p->lineNum);
+        fprintf(pArgs->outFile, "  maxDeltaT: %ld sec at TrkPt #%d (line #%d) : time = %ld s, dist = %.2lf km\n",
+                pTrk->maxDeltaT, p->index, p->lineNum, (p->time - pTrk->baseTime), (p->distance / 1000.0));
     }
     if ((p = pTrk->maxSpeedTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "   maxSpeed: %.10lf km/h at TrkPt #%d (line #%d)\n", pTrk->maxSpeed, p->index, p->lineNum);
+        fprintf(pArgs->outFile, "   maxSpeed: %.10lf km/h at TrkPt #%d (line #%d) : time = %ld s, dist = %.2lf km\n",
+                pTrk->maxSpeed, p->index, p->lineNum, (p->time - pTrk->baseTime), (p->distance / 1000.0));
     }
     if ((p = pTrk->maxGradeTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "   maxGrade: %.2lf%% at TrkPt #%d (line #%d)\n", pTrk->maxGrade, p->index, p->lineNum);
+        fprintf(pArgs->outFile, "   maxGrade: %.2lf%% at TrkPt #%d (line #%d) : time = %ld s, dist = %.2lf km\n",
+                pTrk->maxGrade, p->index, p->lineNum, (p->time - pTrk->baseTime), (p->distance / 1000.0));
     }
     if ((p = pTrk->minGradeTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "   minGrade: %.2lf%% at TrkPt #%d (line #%d)\n", pTrk->minGrade, p->index, p->lineNum);
+        fprintf(pArgs->outFile, "   minGrade: %.2lf%% at TrkPt #%d (line #%d) : time = %ld s, dist = %.2lf km\n",
+                pTrk->minGrade, p->index, p->lineNum, (p->time - pTrk->baseTime), (p->distance / 1000.0));
     }
 }
 
