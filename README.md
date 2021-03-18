@@ -7,7 +7,9 @@ The GPS elevation data in these GPX files can be subject to significant errors, 
 
 Having an incorrect value for the total elevation gain/loss simply skews one's own personal statistics.  But the incorrect grade level is a problem when such GPX file is used to control a cycling "smart trainer".  The bogus elevation values can result in spikes in the grade level that make the feeling of the *virtual ride* unrealistic, and in extreme cases it can suddenly **lock up** the smart trainer. Imagine you are pedaling your bike on the trainer at a steady pace while climbing a segment with a moderate 4% grade, when all of a sudden you get a spike that sends the grade level to 14% ... Yikes!
 
-One of the design goals for the gpxFileTool is to allow the user to correct these errors, so that the virtual ride on the smart trainer is more realistic. The tool has the following features:
+One of the design goals for the gpxFileTool is to allow the user to correct these errors, so that the virtual ride on the smart trainer is more realistic. 
+
+The tool has the following features:
 
 1. Can trim out a range of points.
 2. Can smooth out the elevation values.
@@ -15,7 +17,7 @@ One of the design goals for the gpxFileTool is to allow the user to correct thes
 4. Can filter out optional metrics.
 5. Can generate a new GPX file or a CSV file.
 
-Trimming out a range of points is useful to remove such things as "red light" or "nature break" stops during a ride.
+Trimming out a range of points is useful to remove such things as "red light", "photo shot", or "nature break" stops during a ride.
 
 Smoothing out the elevation values is the main task when preparing a GPX file for a virtual route. The tool uses a Simple Moving Average (SMA) algorithm, over a configurable range of points, to do the elevation smoothing.
 
