@@ -2,8 +2,8 @@
 .project
 .settings/*
 gpxFileTool*
-inputFiles/*
-outputFiles/*
+inFiles/*
+outFiles/*
 *.d
 *.o
 

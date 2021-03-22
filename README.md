@@ -23,9 +23,9 @@ Smoothing out the elevation values is the main task when preparing a GPX file fo
 
 Limiting the min/max grade levels is useful when the user knows *a priori* what those limits are for the given route.
 
-Filtering out optional metrics is useful to remove unwanted sensor data such as heart rate or cadence.
+Filtering out optional metrics is useful to remove unwanted sensor data, such as heart rate or cadence.
 
-Being able to generate a CSV file allows the file to be processed by an app such as Excel or LibreOffice, to do data analysis, graphing, etc.
+Being able to generate a CSV file allows the file to be processed by an app such as Excel or LibreOffice, to do data analysis and visualization.
 
 In addition, the tool can read the GPX input file from standard input, and it can write the GPX output file to standard output, so that it can be used in a *pipe* to do multiple operations in one shot.
 
