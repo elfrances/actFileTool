@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <gpx xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxdata="http://www.cluetrust.com/XML/GPXDATA/1/0" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd http://www.cluetrust.com/XML/GPXDATA/1/0 http://www.cluetrust.com/Schemas/gpxdata10.xsd" version="1.1" creator="http://ridewithgps.com/">
   <metadata>
-    <name>TrailCreekEoP</name>
-    <link href="https://ridewithgps.com/routes/35441676">
-      <text>TrailCreekEoP</text>
+    <name>TrailCreekEoP_RWGPS_Route</name>
+    <link href="https://ridewithgps.com/routes/35463391">
+      <text>TrailCreekEoP_RWGPS_Route</text>
     </link>
-    <time>2021-03-19T13:07:13Z</time>
+    <time>2021-03-21T17:23:59Z</time>
   </metadata>
   <trk>
-    <name>TrailCreekEoP</name>
+    <name>TrailCreekEoP_RWGPS_Route</name>
     <trkseg>
+      <trkpt lat="43.76765" lon="-114.27646">
+        <ele>1957.4</ele>
+      </trkpt>
       <trkpt lat="43.7689" lon="-114.27556">
         <ele>1960.0</ele>
       </trkpt>
@@ -282,6 +285,9 @@
       </trkpt>
       <trkpt lat="43.78886" lon="-114.26036">
         <ele>2122.3</ele>
+      </trkpt>
+      <trkpt lat="43.78896" lon="-114.26035">
+        <ele>2121.9</ele>
       </trkpt>
     </trkseg>
   </trk>

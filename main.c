@@ -124,12 +124,14 @@ typedef struct GpsTrk {
     double elevLoss;
 
     // Min/Max values
+    double maxDeltaP;
     double maxDeltaT;
     double maxSpeed;
     double maxGrade;
     double minGrade;
 
-    const TrkPt *maxTimeIntTrkPt;   // TrkPt with max time interval
+    const TrkPt *maxDeltaPTrkPt;    // TrkPt with max distance
+    const TrkPt *maxDeltaTTrkPt;    // TrkPt with max time interval
     const TrkPt *maxSpeedTrkPt;     // TrkPt with max speed value
     const TrkPt *maxGradeTrkPt;     // TrkPt with max grade value
     const TrkPt *minGradeTrkPt;     // TrkPt with min grade value
@@ -224,7 +226,7 @@ static const char *help =
         "    --sma-window <value>\n"
         "        Size of the window used to compute the Simple Moving Average\n"
         "        of the elevation values, in order to smooth them out. It must be\n"
-        "        an odd value."
+        "        an odd value.\n"
         "    --start-time <time>\n"
         "        Start time for the activity (in UTC time). The timestamp of each\n"
         "        point is adjusted accordingly. Format is: 2018-01-22T10:01:10Z.\n"
@@ -660,6 +662,40 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
     return pTrk;
 }
 
+static void printTrkPt(TrkPt *p)
+{
+    fprintf(stderr, "TrkPt #%u at line #%u {\n", p->index, p->lineNum);
+    fprintf(stderr, "  latitude=%.10lf longitude=%.10lf elevation=%.10lf time=%.3lf speed=%.3lf grade=%.2lf\n",
+            p->latitude, p->longitude, p->elevation, p->time, p->speed, p->grade);
+    fprintf(stderr, "}\n");
+}
+
+// Dump the specified number of track points before and
+// after the given TrkPt.
+static void dumpTrkPts(GpsTrk *pTrk, TrkPt *p, int numPts)
+{
+    int i;
+    TrkPt *tp;
+
+    // Points before the given point
+    for (i = 0, tp = TAILQ_PREV(p, TrkPtList, tqEntry); (i < numPts) && (tp != NULL); i++, tp = TAILQ_PREV(tp, TrkPtList, tqEntry)) {
+        // Rewinding...
+    }
+    while (tp != p) {
+        printTrkPt(tp);
+        tp = TAILQ_NEXT(tp, tqEntry);
+    }
+
+    // The point in question
+    printTrkPt(p);
+
+    // Points after the given point
+    for (i = 0, tp = TAILQ_NEXT(p, tqEntry); (i < numPts) && (tp != NULL); i++, tp = TAILQ_NEXT(tp, tqEntry)) {
+        printTrkPt(tp);
+    }
+
+}
+
 // Compute the distance (in meters) between two track points
 // using the Haversine formula. See:
 //
@@ -721,12 +757,21 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
             // the two points.
             p2->deltaP = compDistance(p1, p2);
 
+            // Update the max distance between two points
+            if (p2->deltaP > pTrk->maxDeltaP) {
+                pTrk->maxDeltaP = p2->deltaP;
+                pTrk->maxDeltaPTrkPt = p2;
+            }
+
             if (p2->time == 0.0) {
                 // TrkPt has no timestamp, so compute the time
                 // interval deltaP based on the distance deltaP
                 // (in m) and the specified speed (in m/s).
                 double deltaT = (p2->deltaP / pArgs->setSpeed); // always positive
                 if (deltaT == 0.0) {
+                    fprintf(stderr, "SPONG! TrkPt at line #%u has a null deltaT !\n",
+                            p2->lineNum);
+                    dumpTrkPts(pTrk, p2, 2);
                     deltaT = 0.1;
                 }
                 p2->time = p1->time + deltaT;
@@ -742,6 +787,7 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
             if (p2->deltaT <= 0) {
                 fprintf(stderr, "SPONG! TrkPt at line #%u has a non-increasing timestamp !\n",
                         p2->lineNum);
+                dumpTrkPts(pTrk, p2, 2);
             }
 
             // Compute the speed as "distance over time", and
@@ -795,7 +841,7 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
                 // Update the max time interval between two points
                 if (p2->deltaT > pTrk->maxDeltaT) {
                     pTrk->maxDeltaT = p2->deltaT;
-                    pTrk->maxTimeIntTrkPt = p2;
+                    pTrk->maxDeltaTTrkPt = p2;
                 }
 
                 // Now let's compute the grade!
@@ -844,6 +890,7 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
                         if (!pArgs->quiet) {
                             fprintf(stderr, "WARNING: TrkPt at line #%u has inconsistent distance (%.10lf) and rise (%.10lf) values! (speed=%.3lf km/h)\n",
                                     p2->lineNum, distance, rise, p2->speed);
+                            dumpTrkPts(pTrk, p2, 2);
                         }
                         p2->grade = (pArgs->maxGrade != 0.0) ? pArgs->maxGrade : 25.0;  // cap the grade at maxGrade or at 25%
                         adjElevation(pTrk, p1, p2);
@@ -859,6 +906,7 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
                             // Hu? This should not happen!
                             fprintf(stderr, "SPONG! TrkPt at line #%u has a negative runSquare value ! (distance=%.10lf rise=%.10lf runSquare=%.10lf)\n",
                                     p2->lineNum, distance, rise, runSquare);
+                            dumpTrkPts(pTrk, p2, 2);
                             return -1;
                         }
 
@@ -872,6 +920,7 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
                             if (!pArgs->quiet) {
                                 fprintf(stderr, "WARNING: TrkPt at line #%u has a null run value !\n",
                                         p2->lineNum);
+                                dumpTrkPts(pTrk, p2, 2);
                             }
 
                             // Use the values from the previous point
@@ -984,8 +1033,8 @@ static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
         if (p1 != NULL) {
             // Skip points where we were stopped
             if (p2->speed != 0.0) {
+                // Do we need to smooth out the grade values?
                 if (pArgs->smaWindow != 0) {
-                    // Compute the SMA of the grade value
                     compGradeSma(pTrk, p2, pArgs->smaWindow);
                 }
 
@@ -1007,8 +1056,9 @@ static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
                 // on the adjusted grade value. We need to adjust
                 // the value of delatE, while the value of deltaP
                 // remains invariant; i.e. the deltaP vector needs
-                // to rotate along an arc so that its angle results
-                // in the adjusted grade value.
+                // to rotate along an arc so that the tanget of the
+                // angle 'alpha' with the horizontal (run) results
+                // in the adjusted/desired grade value.
                 //
                 // deltaE^2 = (grade^2 x deltaP^2) / (1 + grade^2)
                 //
@@ -1079,7 +1129,11 @@ static void printSummary(GpsTrk *pTrk, CmdArgs *pArgs)
     fprintf(pArgs->outFile, "     distance: %.10lf km\n", (pTrk->distance / 1000.0));
     fprintf(pArgs->outFile, "     elevGain: %.10lf m\n", pTrk->elevGain);
     fprintf(pArgs->outFile, "     elevLoss: %.10lf m\n", pTrk->elevLoss);
-    if ((p = pTrk->maxTimeIntTrkPt) != NULL) {
+    if ((p = pTrk->maxDeltaPTrkPt) != NULL) {
+        fprintf(pArgs->outFile, "    maxDeltaP: %.3lf m at TrkPt #%d (line #%d) : time = %ld s, dist = %.2lf km\n",
+                pTrk->maxDeltaP, p->index, p->lineNum, (time_t) (p->time - pTrk->baseTime), (p->distance / 1000.0));
+    }
+    if ((p = pTrk->maxDeltaTTrkPt) != NULL) {
         fprintf(pArgs->outFile, "    maxDeltaT: %.3lf sec at TrkPt #%d (line #%d) : time = %ld s, dist = %.2lf km\n",
                 pTrk->maxDeltaT, p->index, p->lineNum, (time_t) (p->time - pTrk->baseTime), (p->distance / 1000.0));
     }
