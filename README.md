@@ -254,7 +254,7 @@ In this example we instruct the tool to generate a Comma-Separated-Value (CSV) o
 $ gpxFileTool --input-file SampleGpxFiles/Galena_Pass_Northbound.gpx --output-format csv > Galena_Pass_Northbound.csv
 ```
 
-This [screenshot](http://www.topografix.com/GPX/1/1/gpx.xsd) shows the graph of elevation vs. distance for this ride, created from the CSV file.
+This [screenshot](https://github.com/elfrances/gpxFileTool/blob/main/Images/Image-1.png) shows the graph of elevation vs. distance for this ride, created from the CSV file.
 
 
 
