@@ -58,9 +58,10 @@ typedef enum Bool {
     true = 1
 } Bool;
 
-// A single GPS Track Point
+// GPS Track Point
 typedef struct TrkPt {
     TAILQ_ENTRY(TrkPt)   tqEntry;   // node in the trkPtList
+
     int index;          // index in the trkPtList
     int lineNum;        // line number in the input file
 
@@ -88,7 +89,7 @@ typedef struct TrkPt {
     double grade;       // actual grade (in percentage)
 } TrkPt;
 
-// A GPS Track (sequence of Track Points)
+// GPS Track (sequence of Track Points)
 typedef struct GpsTrk {
     // List of TrkPt's
     TAILQ_HEAD(TrkPtList, TrkPt) trkPtList;
@@ -182,7 +183,12 @@ static const double earthMeanRadius = (double) 6372797.560856;  // in meters
 
 static const char *help =
         "SYNTAX:\n"
-        "    gpxFileTool [OPTIONS]\n"
+        "    gpxFileTool [OPTIONS] <file> [<file2> ...]\n"
+        "\n"
+        "    When <file> is omitted or it is the string \"-\" input data is read\n"
+        "    from standard input.  When multiple input files are specified, the\n"
+        "    tool will attempt to stitch them together into a single output file.\n"
+        "\n"
         "OPTIONS:\n"
         "    --help\n"
         "        Show this help and exit.\n"
@@ -260,12 +266,6 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
         if (strcmp(arg, "--help") == 0) {
             fprintf(stdout, "%s\n", help);
             exit(0);
-        } else if (strcmp(arg, "--input-file") == 0) {
-            const char *inputFile = argv[++n];
-            if ((pArgs->inFile = fopen(inputFile, "r")) == NULL) {
-                fprintf(stderr, "Can't open input file %s (%s)\n", inputFile, strerror(errno));
-                return -1;
-            }
         } else if (strcmp(arg, "--max-grade") == 0) {
             const char *maxGrade = argv[++n];
             if (sscanf(maxGrade, "%le", &pArgs->maxGrade) != 1) {
@@ -363,19 +363,17 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
         } else if (strcmp(arg, "--version") == 0) {
             fprintf(stdout, "Version %s %s\n", PROGRAM_VERSION, buildInfo);
             exit(0);
-        } else {
+        } else if (strcmp(arg, "--") == 0) {
             fprintf(stderr, "Invalid option: %s\n", arg);
             return -1;
+        } else {
+            // Assume it's the input file(s)
+            break;
         }
     }
 
     pArgs->argc = argc;
     pArgs->argv = argv;
-
-    if (pArgs->inFile == NULL) {
-        // By default read input from stdin
-        pArgs->inFile = stdin;
-    }
 
     if (pArgs->outFile == NULL) {
         // By default send output to stdout
@@ -392,13 +390,45 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
         pArgs->type = 1;
     }
 
-    return 0;
+    return n;
+}
+
+static void printTrkPt(TrkPt *p)
+{
+    fprintf(stderr, "TrkPt #%u at line #%u {\n", p->index, p->lineNum);
+    fprintf(stderr, "  latitude=%.10lf longitude=%.10lf elevation=%.10lf time=%.3lf speed=%.3lf grade=%.2lf\n",
+            p->latitude, p->longitude, p->elevation, p->time, p->speed, p->grade);
+    fprintf(stderr, "}\n");
+}
+
+// Dump the specified number of track points before and
+// after the given TrkPt.
+static void dumpTrkPts(GpsTrk *pTrk, TrkPt *p, int numPtsBefore, int numPtsAfter)
+{
+    int i;
+    TrkPt *tp;
+
+    // Points before the given point
+    for (i = 0, tp = TAILQ_PREV(p, TrkPtList, tqEntry); (i < numPtsBefore) && (tp != NULL); i++, tp = TAILQ_PREV(tp, TrkPtList, tqEntry)) {
+        // Rewinding...
+    }
+    while (tp != p) {
+        printTrkPt(tp);
+        tp = TAILQ_NEXT(tp, tqEntry);
+    }
+
+    // The point in question
+    printTrkPt(p);
+
+    // Points after the given point
+    for (i = 0, tp = TAILQ_NEXT(p, tqEntry); (i < numPtsAfter) && (tp != NULL); i++, tp = TAILQ_NEXT(tp, tqEntry)) {
+        printTrkPt(tp);
+    }
 }
 
 // Parse the GPX file and create a list of Track Points
-static GpsTrk *parseFile(CmdArgs *pArgs)
+static int parseFile(CmdArgs *pArgs, GpsTrk *pTrk)
 {
-    GpsTrk *pTrk;
     TrkPt *pTrkPt = NULL;
     TrkPt *prevTrkPt = NULL;
     int index = 0;
@@ -413,16 +443,9 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
     if ((fgets(lineBuf, sizeof(lineBuf), pArgs->inFile) == NULL) ||
         (strstr(lineBuf, "<?xml ") == NULL)) {
         fprintf(stderr, "Input file is not a valid GPX file !!!\n");
-        return NULL;
+        return -1;
     }
     lineNum += 1;
-
-    // Create the GpsTrk object
-    if ((pTrk = calloc(1, sizeof(GpsTrk))) == NULL) {
-        fprintf(stderr, "Failed to alloc GpsTrk !!!\n");
-        return NULL;
-    }
-    TAILQ_INIT(&pTrk->trkPtList);
 
     // Process one line at a time, looking for a <trkpt> ... </trkpt>
     // block that defines a track point.
@@ -453,7 +476,7 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
             if (pTrkPt != NULL) {
                 // Hu?
                 fprintf(stderr, "SPONG! Nested <trkpt> block !!! #%u \"%s\"\n", lineNum, lineBuf);
-                return NULL;
+                return -1;
             }
 
             // Update absolute TrkPt index. This index increases
@@ -462,7 +485,7 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
 
             if ((pTrkPt = calloc(1, sizeof(TrkPt))) == NULL) {
                 fprintf(stderr, "Failed to alloc TrkPt !!!\n");
-                return NULL;
+                return -1;
             }
 
             pTrkPt->lineNum = lineNum;
@@ -473,7 +496,7 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
             if (pTrkPt == NULL) {
                 // Hu?
                 fprintf(stderr, "SPONG! No active <trkpt> !!! #%u \"%s\"\n", lineNum, lineBuf);
-                return NULL;
+                return -1;
             }
             pTrkPt->elevation = elevation;
         } else if ((p = strptime(lineBuf, " <time>%Y-%m-%dT%H:%M:%S", &brkDwnTime)) != NULL) {
@@ -484,7 +507,7 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
             if (pTrkPt == NULL) {
                 // Hu?
                 fprintf(stderr, "SPONG! No active <trkpt> !!! #%u \"%s\"\n", lineNum, lineBuf);
-                return NULL;
+                return -1;
             }
 
             // Convert to seconds since the Epoch
@@ -494,7 +517,7 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
             if (sscanf(p, ".%d", &ms) == 1) {
                 if ((ms < 0) || (ms > 999)) {
                     fprintf(stderr, "Invalid millisec value: %d\n", ms);
-                    return NULL;
+                    return -1;
                 }
             }
 
@@ -504,7 +527,7 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
             if (pTrkPt == NULL) {
                 // Hu?
                 fprintf(stderr, "SPONG! No active <trkpt> !!! #%u \"%s\"\n", lineNum, lineBuf);
-                return NULL;
+                return -1;
             }
             pTrkPt->power = power;
             pTrk->optTagCount++;
@@ -513,7 +536,7 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
             if (pTrkPt == NULL) {
                 // Hu?
                 fprintf(stderr, "SPONG! No active <trkpt> !!! #%u \"%s\"\n", lineNum, lineBuf);
-                return NULL;
+                return -1;
             }
             pTrkPt->ambTemp = ambTemp;
             pTrk->optTagCount++;
@@ -522,7 +545,7 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
             if (pTrkPt == NULL) {
                 // Hu?
                 fprintf(stderr, "SPONG! No active <trkpt> !!! #%u \"%s\"\n", lineNum, lineBuf);
-                return NULL;
+                return -1;
             }
             pTrkPt->cadence = cadence;
             pTrk->optTagCount++;
@@ -531,7 +554,7 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
             if (pTrkPt == NULL) {
                 // Hu?
                 fprintf(stderr, "SPONG! No active <trkpt> !!! #%u \"%s\"\n", lineNum, lineBuf);
-                return NULL;
+                return -1;
             }
             pTrkPt->heartRate = heartRate;
             pTrk->optTagCount++;
@@ -540,26 +563,27 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
             if (pTrkPt == NULL) {
                 // Hu?
                 fprintf(stderr, "SPONG! No active <trkpt> block !!! #%u \"%s\"\n", lineNum, lineBuf);
-                return NULL;
+                return -1;
             }
 
             // Let's do some consistency checks...
 
             // Without elevation data, there isn't much we can do!
             if (pTrkPt->elevation == 0.0) {
-                fprintf(stderr, "TrkPt at line #%u is missing its elevation data!\n", pTrkPt->lineNum);
-                return NULL;
+                fprintf(stderr, "TrkPt at line #%u is missing its elevation data !\n", pTrkPt->lineNum);
+                return -1;
             }
 
             if (pArgs->startTime == 0.0) {
                 if (pTrkPt->time == 0.0) {
-                    fprintf(stderr, "TrkPt at line #%u is missing its time data!\n", pTrkPt->lineNum);
-                    return NULL;
+                    fprintf(stderr, "TrkPt at line #%u is missing its time data !\n", pTrkPt->lineNum);
+                    return -1;
                 }
                 if ((prevTrkPt != NULL) && (pTrkPt->time <= prevTrkPt->time)) {
-                        fprintf(stderr, "TrkPt at line #%u has a non-increasing timestamp from the previous point at line #%u!\n",
+                        fprintf(stderr, "TrkPt at line #%u has a non-increasing timestamp from the previous point at line #%u !\n",
                                 pTrkPt->lineNum, prevTrkPt->lineNum);
-                        return NULL;
+                        dumpTrkPts(pTrk, pTrkPt, 2, 0);
+                        return -1;
                 }
             }
 
@@ -573,8 +597,9 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
                     (prevTrkPt->elevation == pTrkPt->elevation) &&
                     (prevTrkPt->time == pTrkPt->time)) {
                     if (!pArgs->quiet) {
-                        fprintf(stderr, "WARNING: TrkPt at line #%u is a duplicate of TrkPt at line #%u! (latitude=%.10lf longitude=%.10lf elevation=%.10lf time=%.3lf\n",
-                                pTrkPt->lineNum, prevTrkPt->lineNum, pTrkPt->latitude, pTrkPt->longitude, pTrkPt->elevation, pTrkPt->time);
+                        fprintf(stderr, "WARNING: TrkPt at line #%u is a duplicate of TrkPt at line #%u !\n",
+                                pTrkPt->lineNum, prevTrkPt->lineNum);
+                        dumpTrkPts(pTrk, pTrkPt, 2, 0);
                     }
                     pTrk->numDupTrkPts++;
                     discTrkPt = true;
@@ -631,7 +656,7 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
 
     // Done reading all the TrkPt's!
 
-    // The first point is used a the reference...
+    // The first point is used a the reference point...
     if ((pTrkPt = TAILQ_FIRST(&pTrk->trkPtList)) != NULL) {
         if (pTrkPt->time == 0.0) {
             // TrkPt has no time information, likely because this
@@ -640,7 +665,7 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
             // to be able to generate the timestamps...
             if ((pArgs->startTime == 0) || (pArgs->setSpeed == 0.0)) {
                 fprintf(stderr, "TrkPt is missing time information and no startTime or setSpeed has been specified!\n");
-                return NULL;
+                return -1;
             }
 
             pTrkPt->time = pArgs->startTime;
@@ -659,41 +684,7 @@ static GpsTrk *parseFile(CmdArgs *pArgs)
         fprintf(stdout, "No track points found!\n");
     }
 
-    return pTrk;
-}
-
-static void printTrkPt(TrkPt *p)
-{
-    fprintf(stderr, "TrkPt #%u at line #%u {\n", p->index, p->lineNum);
-    fprintf(stderr, "  latitude=%.10lf longitude=%.10lf elevation=%.10lf time=%.3lf speed=%.3lf grade=%.2lf\n",
-            p->latitude, p->longitude, p->elevation, p->time, p->speed, p->grade);
-    fprintf(stderr, "}\n");
-}
-
-// Dump the specified number of track points before and
-// after the given TrkPt.
-static void dumpTrkPts(GpsTrk *pTrk, TrkPt *p, int numPts)
-{
-    int i;
-    TrkPt *tp;
-
-    // Points before the given point
-    for (i = 0, tp = TAILQ_PREV(p, TrkPtList, tqEntry); (i < numPts) && (tp != NULL); i++, tp = TAILQ_PREV(tp, TrkPtList, tqEntry)) {
-        // Rewinding...
-    }
-    while (tp != p) {
-        printTrkPt(tp);
-        tp = TAILQ_NEXT(tp, tqEntry);
-    }
-
-    // The point in question
-    printTrkPt(p);
-
-    // Points after the given point
-    for (i = 0, tp = TAILQ_NEXT(p, tqEntry); (i < numPts) && (tp != NULL); i++, tp = TAILQ_NEXT(tp, tqEntry)) {
-        printTrkPt(tp);
-    }
-
+    return 0;
 }
 
 // Compute the distance (in meters) between two track points
@@ -771,7 +762,7 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
                 if (deltaT == 0.0) {
                     fprintf(stderr, "SPONG! TrkPt at line #%u has a null deltaT !\n",
                             p2->lineNum);
-                    dumpTrkPts(pTrk, p2, 2);
+                    dumpTrkPts(pTrk, p2, 2, 2);
                     deltaT = 0.1;
                 }
                 p2->time = p1->time + deltaT;
@@ -787,7 +778,7 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
             if (p2->deltaT <= 0) {
                 fprintf(stderr, "SPONG! TrkPt at line #%u has a non-increasing timestamp !\n",
                         p2->lineNum);
-                dumpTrkPts(pTrk, p2, 2);
+                dumpTrkPts(pTrk, p2, 2, 2);
             }
 
             // Compute the speed as "distance over time", and
@@ -890,7 +881,7 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
                         if (!pArgs->quiet) {
                             fprintf(stderr, "WARNING: TrkPt at line #%u has inconsistent distance (%.10lf) and rise (%.10lf) values! (speed=%.3lf km/h)\n",
                                     p2->lineNum, distance, rise, p2->speed);
-                            dumpTrkPts(pTrk, p2, 2);
+                            dumpTrkPts(pTrk, p2, 2, 2);
                         }
                         p2->grade = (pArgs->maxGrade != 0.0) ? pArgs->maxGrade : 25.0;  // cap the grade at maxGrade or at 25%
                         adjElevation(pTrk, p1, p2);
@@ -906,7 +897,7 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
                             // Hu? This should not happen!
                             fprintf(stderr, "SPONG! TrkPt at line #%u has a negative runSquare value ! (distance=%.10lf rise=%.10lf runSquare=%.10lf)\n",
                                     p2->lineNum, distance, rise, runSquare);
-                            dumpTrkPts(pTrk, p2, 2);
+                            dumpTrkPts(pTrk, p2, 2, 2);
                             return -1;
                         }
 
@@ -920,7 +911,7 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
                             if (!pArgs->quiet) {
                                 fprintf(stderr, "WARNING: TrkPt at line #%u has a null run value !\n",
                                         p2->lineNum);
-                                dumpTrkPts(pTrk, p2, 2);
+                                dumpTrkPts(pTrk, p2, 2, 2);
                             }
 
                             // Use the values from the previous point
@@ -1268,7 +1259,7 @@ static void printGpxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
     fprintf(pArgs->outFile, "</gpx>\n");
 }
 
-static int printOutput(GpsTrk *pTrk, CmdArgs *pArgs)
+static void printOutput(GpsTrk *pTrk, CmdArgs *pArgs)
 {
     if (pArgs->summary) {
         printSummary(pTrk, pArgs);
@@ -1277,56 +1268,56 @@ static int printOutput(GpsTrk *pTrk, CmdArgs *pArgs)
     } else if (pArgs->outFmt == gpx) {
         printGpxFmt(pTrk, pArgs);
     }
-
-    return 0;
-}
-
-static void cleanup(CmdArgs *pArgs, GpsTrk *pTrk)
-{
-    fclose(pArgs->inFile);
-    if (pArgs->outFile != stdout)
-        fclose(pArgs->outFile);
-
-    if (pTrk != NULL) {
-        TrkPt *p;
-        while ((p = TAILQ_FIRST(&pTrk->trkPtList)) != NULL) {
-            TAILQ_REMOVE(&pTrk->trkPtList, p, tqEntry);
-            free(p);
-        }
-
-        free(pTrk);
-    }
 }
 
 int main(int argc, char **argv)
 {
     CmdArgs cmdArgs = {0};
-    GpsTrk *pTrk;
-    int s = 0;
+    GpsTrk gpsTrk = {0};
+    int n;
 
     // Parse the command arguments
-    if (parseArgs(argc, argv, &cmdArgs) != 0) {
+    if ((n = parseArgs(argc, argv, &cmdArgs)) < 0) {
         return -1;
     }
 
-    // Parse the GPX input data
-    if ((pTrk = parseFile(&cmdArgs)) != NULL) {
-        // Compute the speed & grade data
-        if (compDataPhase1(pTrk, &cmdArgs) == 0) {
-            // Do necessary adjustments
-            compDataPhase2(pTrk, &cmdArgs);
+    TAILQ_INIT(&gpsTrk.trkPtList);
+
+    // Process each input file
+    while (n < argc) {
+        const char *inFile = argv[n++];
+
+        if ((cmdArgs.inFile = fopen(inFile, "r")) == NULL) {
+            fprintf(stderr, "Failed to open input file %s\n", inFile);
+            return -1;
         }
 
-        // Generate the output data
-        printOutput(pTrk, &cmdArgs);
-    } else {
-        fprintf(stderr, "Failed to parse input file\n");
-        s = -1;
+        if (parseFile(&cmdArgs, &gpsTrk) != 0) {
+            fprintf(stderr, "Failed to parse input file %s\n", inFile);
+            return -1;
+        }
+
+        fclose(cmdArgs.inFile);
+        cmdArgs.inFile = NULL;
     }
 
-    cleanup(&cmdArgs, pTrk);
+    // Compute the speed & grade data
+    if (compDataPhase1(&gpsTrk, &cmdArgs) != 0) {
+        fprintf(stderr, "Failed to compute speed/grade!\n");
+        return -1;
+    }
 
-    return s;
+    // Do necessary adjustments
+    compDataPhase2(&gpsTrk, &cmdArgs);
+
+    // Generate the output data
+    printOutput(&gpsTrk, &cmdArgs);
+
+    if (cmdArgs.outFile != stdout) {
+        fclose(cmdArgs.outFile);
+    }
+
+    return 0;
 }
 
 

@@ -67,7 +67,12 @@ The following examples show how to use the tool.  Running the tool with the opti
 ```
 $ gpxFileTool --help
 SYNTAX:
-    gpxFileTool [OPTIONS]
+    gpxFileTool [OPTIONS] <file> [<file2> ...]
+
+    When <file> is omitted or it is the string "-" input data is read
+    from standard input.  When multiple input files are specified, the
+    tool will attempt to stitch them together into a single output file.
+
 OPTIONS:
     --help
         Show this help and exit.
