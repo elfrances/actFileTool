@@ -363,7 +363,7 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
         } else if (strcmp(arg, "--version") == 0) {
             fprintf(stdout, "Version %s %s\n", PROGRAM_VERSION, buildInfo);
             exit(0);
-        } else if (strcmp(arg, "--") == 0) {
+        } else if (strncmp(arg, "--", 2) == 0) {
             fprintf(stderr, "Invalid option: %s\n", arg);
             return -1;
         } else {
