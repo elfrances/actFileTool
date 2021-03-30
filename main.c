@@ -111,6 +111,9 @@ typedef struct GpsTrk {
     // Number of optional sensor tags
     int optTagCount;
 
+    int index;
+    int trkPtNum;
+
     // Base time
     double baseTime;                // time reference to generate relative timestamps
 
@@ -156,7 +159,7 @@ typedef enum OutFmt {
 typedef struct CmdArgs {
     int argc;           // number of arguments
     char **argv;        // list of arguments
-    FILE *inFile;       // input file
+    const char *inFile; // input file
     double maxGrade;    // max grade allowed (in %)
     double minGrade;    // min grade allowed (in %)
     double minSpeed;    // min speed below which we assume we are stopped
@@ -429,18 +432,22 @@ static void dumpTrkPts(GpsTrk *pTrk, TrkPt *p, int numPtsBefore, int numPtsAfter
 // Parse the GPX file and create a list of Track Points
 static int parseFile(CmdArgs *pArgs, GpsTrk *pTrk)
 {
+    FILE *fp;
     TrkPt *pTrkPt = NULL;
     TrkPt *prevTrkPt = NULL;
-    int index = 0;
-    int trkPtNum = 0;
     int lineNum = 0;
     int metaData = 0;
     int trimTrkPts = false;
     double trimmedTime = 0.0;
     static char lineBuf[4096];
 
+    if ((fp = fopen(pArgs->inFile, "r")) == NULL) {
+        fprintf(stderr, "Failed to open input file %s\n", pArgs->inFile);
+        return -1;
+    }
+
     // Check the input file type
-    if ((fgets(lineBuf, sizeof(lineBuf), pArgs->inFile) == NULL) ||
+    if ((fgets(lineBuf, sizeof(lineBuf), fp) == NULL) ||
         (strstr(lineBuf, "<?xml ") == NULL)) {
         fprintf(stderr, "Input file is not a valid GPX file !!!\n");
         return -1;
@@ -449,7 +456,7 @@ static int parseFile(CmdArgs *pArgs, GpsTrk *pTrk)
 
     // Process one line at a time, looking for a <trkpt> ... </trkpt>
     // block that defines a track point.
-    while (fgets(lineBuf, sizeof(lineBuf), pArgs->inFile) != NULL) {
+    while (fgets(lineBuf, sizeof(lineBuf), fp) != NULL) {
         double latitude, longitude, elevation;
         struct tm brkDwnTime = {0};
         int ambTemp, cadence, heartRate, power;
@@ -481,10 +488,10 @@ static int parseFile(CmdArgs *pArgs, GpsTrk *pTrk)
 
             // Update absolute TrkPt index. This index increases
             // monotonically, even for TrkPts that are trimmed out.
-            index++;
+            pTrk->index++;
 
             if ((pTrkPt = calloc(1, sizeof(TrkPt))) == NULL) {
-                fprintf(stderr, "Failed to alloc TrkPt !!!\n");
+                fprintf(stderr, "Failed to alloc TrkPt object !!!\n");
                 return -1;
             }
 
@@ -607,12 +614,12 @@ static int parseFile(CmdArgs *pArgs, GpsTrk *pTrk)
 
                 // Do we need to trim this TrkPt?
                 if (pArgs->trim) {
-                    if (index == pArgs->rangeFrom) {
+                    if (pTrk->index == pArgs->rangeFrom) {
                         trimTrkPts = true; // start trimming
                         trimmedTime = pTrkPt->time;  // set baseline time
                         pTrk->numTrimTrkPts++;
                         discTrkPt = true;
-                    } else if (index == pArgs->rangeTo) {
+                    } else if (pTrk->index == pArgs->rangeTo) {
                         trimTrkPts = false; // stop trimming
                         trimmedTime = pTrkPt->time - trimmedTime + 1;    // total time trimmed
                         pTrk->numTrimTrkPts++;
@@ -633,7 +640,7 @@ static int parseFile(CmdArgs *pArgs, GpsTrk *pTrk)
 
             // This TrkPt has been "accepted" !
 
-            pTrkPt->index = ++trkPtNum;
+            pTrkPt->index = ++pTrk->trkPtNum;
 
             if (trimmedTime) {
                 // If we trimmed out some points, move the timestamp
@@ -654,35 +661,7 @@ static int parseFile(CmdArgs *pArgs, GpsTrk *pTrk)
         }
     }
 
-    // Done reading all the TrkPt's!
-
-    // The first point is used a the reference point...
-    if ((pTrkPt = TAILQ_FIRST(&pTrk->trkPtList)) != NULL) {
-        if (pTrkPt->time == 0.0) {
-            // TrkPt has no time information, likely because this
-            // is a GPX route, not a ride. In this case we need to
-            // have a startTime and a setSpeed defined, in order
-            // to be able to generate the timestamps...
-            if ((pArgs->startTime == 0) || (pArgs->setSpeed == 0.0)) {
-                fprintf(stderr, "TrkPt is missing time information and no startTime or setSpeed has been specified!\n");
-                return -1;
-            }
-
-            pTrkPt->time = pArgs->startTime;
-        } else if (pArgs->startTime != 0) {
-            // Set the time offset used to change the start time
-            // of the activity.
-            pTrk->timeOffset = pArgs->startTime - pTrkPt->time;
-        }
-
-        // If necessary, set the base time reference used to
-        // generate relative timestamps in the CSV output data.
-        if (pArgs->relTime) {
-            pTrk->baseTime = pTrkPt->time;
-        }
-    } else {
-        fprintf(stdout, "No track points found!\n");
-    }
+    fclose(fp);
 
     return 0;
 }
@@ -735,196 +714,195 @@ static void adjElevation(GpsTrk *pTrk, TrkPt *p1, TrkPt *p2)
 
 static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
 {
-    TrkPt *p1 = NULL;   // previous TrkPt
-    TrkPt *p2 = NULL;   // current TrkPt
+    TrkPt *p1 = TAILQ_FIRST(&pTrk->trkPtList);  // previous TrkPt
+    TrkPt *p2 = TAILQ_NEXT(p1, tqEntry);    // current TrkPt
 
     // Compute the distance, elevation diff, speed, and grade
     // between each pair of points...
-    TAILQ_FOREACH(p2, &pTrk->trkPtList, tqEntry) {
+    while (p2 != NULL) {
         Bool stopped = false;
 
-        if (p1 != NULL) {
-            // Compute the position difference (distance) between
-            // the two points.
-            p2->deltaP = compDistance(p1, p2);
+        // Compute the position difference (distance) between
+        // the two points.
+        p2->deltaP = compDistance(p1, p2);
 
-            // Update the max distance between two points
-            if (p2->deltaP > pTrk->maxDeltaP) {
-                pTrk->maxDeltaP = p2->deltaP;
-                pTrk->maxDeltaPTrkPt = p2;
-            }
+        // Update the max distance between two points
+        if (p2->deltaP > pTrk->maxDeltaP) {
+            pTrk->maxDeltaP = p2->deltaP;
+            pTrk->maxDeltaPTrkPt = p2;
+        }
 
-            if (p2->time == 0.0) {
-                // TrkPt has no timestamp, so compute the time
-                // interval deltaP based on the distance deltaP
-                // (in m) and the specified speed (in m/s).
-                double deltaT = (p2->deltaP / pArgs->setSpeed); // always positive
-                if (deltaT == 0.0) {
-                    fprintf(stderr, "SPONG! TrkPt at line #%u has a null deltaT !\n",
-                            p2->lineNum);
-                    dumpTrkPts(pTrk, p2, 2, 2);
-                    deltaT = 0.1;
-                }
-                p2->time = p1->time + deltaT;
-            }
-
-            // Compute the time interval between the two points.
-            // Ideally fixed at 1-sec, but some GPS devices (e.g.
-            // Garmin Edge) may use a "smart" recording mode that
-            // can have several seconds between points...
-            p2->deltaT = (p2->time - p1->time);
-
-            // Paranoia?
-            if (p2->deltaT <= 0) {
-                fprintf(stderr, "SPONG! TrkPt at line #%u has a non-increasing timestamp !\n",
+        if (p2->time == 0.0) {
+            // TrkPt has no timestamp, so compute the time
+            // interval deltaT based on the distance deltaP
+            // (in m) and the specified speed (in m/s).
+            double deltaT = (p2->deltaP / pArgs->setSpeed); // always positive
+            if (deltaT == 0.0) {
+                fprintf(stderr, "SPONG! TrkPt at line #%u has a null deltaT !\n",
                         p2->lineNum);
                 dumpTrkPts(pTrk, p2, 2, 2);
+                deltaT = 0.1;
+            }
+            p2->time = p1->time + deltaT;
+        }
+
+        // Compute the time interval between the two points.
+        // Ideally fixed at 1-sec, but some GPS devices (e.g.
+        // Garmin Edge) may use a "smart" recording mode that
+        // can have several seconds between points...
+        p2->deltaT = (p2->time - p1->time);
+
+        // Paranoia?
+        if (p2->deltaT <= 0) {
+            fprintf(stderr, "SPONG! TrkPt at line #%u has a non-increasing timestamp !\n",
+                    p2->lineNum);
+            dumpTrkPts(pTrk, p2, 2, 2);
+        }
+
+        // Compute the speed as "distance over time", and
+        // convert it from m/s to km/h.
+        p2->speed = ((p2->deltaP * 3.6) / p2->deltaT);
+
+        // Are we stopped?
+        if (p2->speed == 0.0) {
+            stopped = true;
+        } else if ((pArgs->minSpeed != 0.0) && (p2->speed < pArgs->minSpeed)) {
+            // The speed is below the specified minimum value
+            // so assume we are stopped.
+            if (!pArgs->quiet) {
+                fprintf(stderr, "WARNING: TrkPt at line #%u has a speed value %.10lf km/h below the minimum value %.10lf km/h !\n",
+                        p2->lineNum, p2->speed, pArgs->minSpeed);
             }
 
-            // Compute the speed as "distance over time", and
-            // convert it from m/s to km/h.
-            p2->speed = ((p2->deltaP * 3.6) / p2->deltaT);
+            stopped = true;
+        } else {
+            stopped = false;
+        }
 
-            // Are we stopped?
-            if (p2->speed == 0.0) {
-                stopped = true;
-            } else if ((pArgs->minSpeed != 0.0) && (p2->speed < pArgs->minSpeed)) {
-                // The speed is below the specified minimum value
-                // so assume we are stopped.
-                if (!pArgs->quiet) {
-                    fprintf(stderr, "WARNING: TrkPt at line #%u has a speed value %.10lf km/h below the minimum value %.10lf km/h !\n",
-                            p2->lineNum, p2->speed, pArgs->minSpeed);
-                }
-
-                stopped = true;
-            } else {
-                stopped = false;
+        if (stopped) {
+            if (!pArgs->quiet) {
+                fprintf(stderr, "WARNING: Stopped! (line #%u, speed %.10lf km/h, deltaT %.3lf, stoppedTime %ld\n",
+                        p2->lineNum, p2->speed, p2->deltaT, (time_t) pTrk->stoppedTime);
             }
 
-            if (stopped) {
-                if (!pArgs->quiet) {
-                    fprintf(stderr, "WARNING: Stopped! (line #%u, speed %.10lf km/h, deltaT %.3lf, stoppedTime %ld\n",
-                            p2->lineNum, p2->speed, p2->deltaT, (time_t) pTrk->stoppedTime);
-                }
+            // Update the stopped time value for the activity
+            pTrk->stoppedTime += p2->deltaT;
 
-                // Update the stopped time value for the activity
-                pTrk->stoppedTime += p2->deltaT;
+            // Set the speed to zero, to indicate we were not
+            // moving, and skip this point when we generate
+            // the output data.
+            p2->speed = 0.0;
+        } else {
+            // Adjust the timestamp to account for any earlier
+            // stopped time.
+            p2->adjTime = p2->time - pTrk->stoppedTime;
 
-                // Set the speed to zero, to indicate we were not
-                // moving, and skip this point when we generate
-                // the output data.
-                p2->speed = 0.0;
-            } else {
-                // Adjust the timestamp to account for any earlier
-                // stopped time.
-                p2->adjTime = p2->time - pTrk->stoppedTime;
+            // Update the total distance for the activity
+            pTrk->distance += p2->deltaP;
 
-                // Update the total distance for the activity
-                pTrk->distance += p2->deltaP;
+            // Set the distance (from the start) of this
+            // point.
+            p2->distance = pTrk->distance;
 
-                // Set the distance (from the start) of this
-                // point.
-                p2->distance = pTrk->distance;
+            // Update the total time for the activity
+            pTrk->time += p2->deltaT;
 
-                // Update the total time for the activity
-                pTrk->time += p2->deltaT;
+            // Update the max time interval between two points
+            if (p2->deltaT > pTrk->maxDeltaT) {
+                pTrk->maxDeltaT = p2->deltaT;
+                pTrk->maxDeltaTTrkPt = p2;
+            }
 
-                // Update the max time interval between two points
-                if (p2->deltaT > pTrk->maxDeltaT) {
-                    pTrk->maxDeltaT = p2->deltaT;
-                    pTrk->maxDeltaTTrkPt = p2;
-                }
+            // Now let's compute the grade!
+            {
+                double distance = p2->deltaP;
+                double rise;
 
-                // Now let's compute the grade!
-                {
-                    double distance = p2->deltaP;
-                    double rise;
+                // Elevation difference (can be negative)
+                p2->deltaE = p2->elevation - p1->elevation;
 
-                    // Elevation difference (can be negative)
-                    p2->deltaE = p2->elevation - p1->elevation;
+                // The rise is always positive!
+                rise = fabs(p2->deltaE);
 
-                    // The rise is always positive!
+                // Use Pythagoras's Theorem to compute the horizontal
+                // distance (run) based on the distance (hypotenuse)
+                // and the elevation difference (rise). Notice that
+                // the rise value inherits whatever error the elevation
+                // value may have. Notice also that the drawing of the
+                // triangle below is not realistic, as even with a
+                // steep 25% grade, a run of 1 meter would have a rise
+                // of only 0.25 meter, so the triangle would typically
+                // have a longer run than rise, being "long and short"
+                // when drawn to scale.
+                //
+                //                 p2 +
+                //                   /|
+                //                  / |
+                //                 /  |
+                //       distance /   | rise
+                //               /    |
+                //              /     |
+                //             /      |
+                //         p1 +-------+
+                //               run
+                //
+                //    run^2 + rise^2 = distance^2
+                //
+                // Under normal circumstances, the distance is always
+                // larger than the rise.  But when the GPS elevation
+                // data is bad, the rise value may be larger than the
+                // distance, in which case Pythagoras's Theorem would
+                // not work anymore. In those cases we "fix" the rise
+                // value so that it is consistent with the max grade
+                // allowed.
+                if (distance < rise) {
+                    if (!pArgs->quiet) {
+                        fprintf(stderr, "WARNING: TrkPt at line #%u has inconsistent distance (%.10lf) and rise (%.10lf) values! (speed=%.3lf km/h)\n",
+                                p2->lineNum, distance, rise, p2->speed);
+                        dumpTrkPts(pTrk, p2, 2, 2);
+                    }
+                    p2->grade = (pArgs->maxGrade != 0.0) ? pArgs->maxGrade : 25.0;  // cap the grade at maxGrade or at 25%
+                    adjElevation(pTrk, p1, p2);
                     rise = fabs(p2->deltaE);
+                }
 
-                    // Use Pythagoras's Theorem to compute the horizontal
-                    // distance (run) based on the distance (hypotenuse)
-                    // and the elevation difference (rise). Notice that
-                    // the rise value inherits whatever error the elevation
-                    // value may have. Notice also that the drawing of the
-                    // triangle below is not realistic, as even with a
-                    // steep 25% grade, a run of 1 meter would have a rise
-                    // of only 0.25 meter, so the triangle would typically
-                    // have a longer run than rise, being "long and short"
-                    // when drawn to scale.
-                    //
-                    //                 p2 +
-                    //                   /|
-                    //                  / |
-                    //                 /  |
-                    //       distance /   | rise
-                    //               /    |
-                    //              /     |
-                    //             /      |
-                    //         p1 +-------+
-                    //               run
-                    //
-                    //    run^2 + rise^2 = distance^2
-                    //
-                    // Under normal circumstances, the distance is always
-                    // larger than the rise.  But when the GPS elevation
-                    // data is bad, the rise value may be larger than the
-                    // distance, in which case Pythagoras's Theorem would
-                    // not work anymore. In those cases we "fix" the rise
-                    // value so that it is consistent with the max grade
-                    // allowed.
-                    if (distance < rise) {
-                        if (!pArgs->quiet) {
-                            fprintf(stderr, "WARNING: TrkPt at line #%u has inconsistent distance (%.10lf) and rise (%.10lf) values! (speed=%.3lf km/h)\n",
-                                    p2->lineNum, distance, rise, p2->speed);
-                            dumpTrkPts(pTrk, p2, 2, 2);
-                        }
-                        p2->grade = (pArgs->maxGrade != 0.0) ? pArgs->maxGrade : 25.0;  // cap the grade at maxGrade or at 25%
-                        adjElevation(pTrk, p1, p2);
-                        rise = fabs(p2->deltaE);
+                {
+                    double runSquare = (distance * distance) - (rise * rise);
+
+                    if (runSquare > 0.0) {
+                        p2->run = sqrt(runSquare);
+                    } else {
+                        // Hu? This should not happen!
+                        fprintf(stderr, "SPONG! TrkPt at line #%u has a negative runSquare value ! (distance=%.10lf rise=%.10lf runSquare=%.10lf)\n",
+                                p2->lineNum, distance, rise, runSquare);
+                        dumpTrkPts(pTrk, p2, 2, 2);
+                        return -1;
                     }
 
-                    {
-                        double runSquare = (distance * distance) - (rise * rise);
-
-                        if (runSquare > 0.0) {
-                            p2->run = sqrt(runSquare);
-                        } else {
-                            // Hu? This should not happen!
-                            fprintf(stderr, "SPONG! TrkPt at line #%u has a negative runSquare value ! (distance=%.10lf rise=%.10lf runSquare=%.10lf)\n",
-                                    p2->lineNum, distance, rise, runSquare);
+                    if (p2->run != 0.0) {
+                        // Compute the grade as "rise over run". Here we use deltaE
+                        // instead of rise, so that the grade value has the right
+                        // sign...
+                        p2->grade = (p2->deltaE * 100.0) / p2->run;  // in [%]
+                    } else {
+                        // Hu? This should not happen!
+                        if (!pArgs->quiet) {
+                            fprintf(stderr, "WARNING: TrkPt at line #%u has a null run value !\n",
+                                    p2->lineNum);
                             dumpTrkPts(pTrk, p2, 2, 2);
-                            return -1;
                         }
 
-                        if (p2->run != 0.0) {
-                            // Compute the grade as "rise over run". Here we use deltaE
-                            // instead of rise, so that the grade value has the right
-                            // sign...
-                            p2->grade = (p2->deltaE * 100.0) / p2->run;  // in [%]
-                        } else {
-                            // Hu? This should not happen!
-                            if (!pArgs->quiet) {
-                                fprintf(stderr, "WARNING: TrkPt at line #%u has a null run value !\n",
-                                        p2->lineNum);
-                                dumpTrkPts(pTrk, p2, 2, 2);
-                            }
-
-                            // Use the values from the previous point
-                            p2->elevation = p1->elevation;
-                            p2->speed = p1->speed;
-                            p2->grade = p1->grade;
-                        }
+                        // Use the values from the previous point
+                        p2->elevation = p1->elevation;
+                        p2->speed = p1->speed;
+                        p2->grade = p1->grade;
                     }
                 }
             }
         }
 
         p1 = p2;
+        p2 = TAILQ_NEXT(p2, tqEntry);
     }
 
     return 0;
@@ -1096,12 +1074,27 @@ static void printSummary(GpsTrk *pTrk, CmdArgs *pArgs)
     fprintf(pArgs->outFile, "numTrimTrkPts: %d\n", pTrk->numTrimTrkPts);
     fprintf(pArgs->outFile, "   numElevAdj: %d\n", pTrk->numElevAdj);
 
+    // Date & time
+    {
+        double timeStamp;
+        struct tm brkDwnTime = {0};
+        char timeBuf[128];
+        time_t dateAndTime;
+
+        p = TAILQ_FIRST(&pTrk->trkPtList);
+        timeStamp = (p->adjTime != 0) ? p->adjTime : p->time;    // use the adjusted timestamp if there is one
+        timeStamp += pTrk->timeOffset;
+        dateAndTime = (time_t) timeStamp;  // seconds only
+        strftime(timeBuf, sizeof (timeBuf), "%Y-%m-%dT%H:%M:%S", gmtime_r(&dateAndTime, &brkDwnTime));
+        fprintf(pArgs->outFile, "  dateAndTime: %s\n", timeBuf);
+    }
+
     // Total time
     time = pTrk->time;
     hr = time / 3600;
     min = (time - (hr * 3600)) / 60;
     sec = (time - (hr * 3600)) % 60;
-    fprintf(pArgs->outFile, "         time: %02ld:%02ld:%02ld\n", hr, min, sec);
+    fprintf(pArgs->outFile, "    totalTime: %02ld:%02ld:%02ld\n", hr, min, sec);
 
     // Moving time
     time = pTrk->time - pTrk->stoppedTime;
@@ -1274,6 +1267,7 @@ int main(int argc, char **argv)
 {
     CmdArgs cmdArgs = {0};
     GpsTrk gpsTrk = {0};
+    TrkPt *pTrkPt;
     int n;
 
     // Parse the command arguments
@@ -1285,20 +1279,46 @@ int main(int argc, char **argv)
 
     // Process each input file
     while (n < argc) {
-        const char *inFile = argv[n++];
-
-        if ((cmdArgs.inFile = fopen(inFile, "r")) == NULL) {
-            fprintf(stderr, "Failed to open input file %s\n", inFile);
-            return -1;
-        }
-
+        cmdArgs.inFile = argv[n++];
         if (parseFile(&cmdArgs, &gpsTrk) != 0) {
-            fprintf(stderr, "Failed to parse input file %s\n", inFile);
+            fprintf(stderr, "Failed to parse input file %s\n", cmdArgs.inFile);
             return -1;
         }
-
-        fclose(cmdArgs.inFile);
         cmdArgs.inFile = NULL;
+    }
+
+    // Done reading all the TrkPt's!
+
+    // The first point is used a the reference point...
+    if ((pTrkPt = TAILQ_FIRST(&gpsTrk.trkPtList)) != NULL) {
+        if (pTrkPt->time == 0.0) {
+            // TrkPt has no time information, likely because this
+            // is a GPX route, not a GPX ride. In this case we need
+            // to have a startTime and a setSpeed defined, in order
+            // to be able to generate the timestamps...
+            if ((cmdArgs.startTime == 0) || (cmdArgs.setSpeed == 0.0)) {
+                fprintf(stderr, "TrkPt is missing time information and no startTime or setSpeed has been specified!\n");
+                return -1;
+            }
+
+            // Set the timestamp of the first point to the desired
+            // start time.
+            pTrkPt->time = cmdArgs.startTime;
+        } else if (cmdArgs.startTime != 0) {
+            // We are changing the start date/time of the activity
+            // so set the time offset used to adjust the timestamp
+            // of each point accordingly.
+            gpsTrk.timeOffset = cmdArgs.startTime - pTrkPt->time;
+        }
+
+        // If necessary, set the base time reference used to
+        // generate relative timestamps in the CSV output data.
+        if (cmdArgs.relTime) {
+            gpsTrk.baseTime = pTrkPt->time;
+        }
+    } else {
+        fprintf(stderr, "No track points found!\n");
+        return -1;
     }
 
     // Compute the speed & grade data
