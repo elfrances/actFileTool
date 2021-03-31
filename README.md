@@ -253,12 +253,6 @@ In this example we instruct the tool to generate a Comma-Separated-Value (CSV) o
 $ gpxFileTool --output-format csv SampleGpxFiles/Galena_Pass_Northbound.gpx > Galena_Pass_Northbound.csv
 ```
 
-First Header | Second Header
------------- | -------------
-Content from cell 1 | Content from cell 2
-Content in the first column | Content in the second column
-
-
  line# | trkpt | time | lat | lon | ele | power | atemp | cadence | hr | deltaP | deltaT | deltaE | run | distance | speed | grade
 ------ | ----- | ---- | --- | --- | --- | ----- | ----- | ------- | -- | ------ | ------ | ------ | --- | -------- | ----- | -----
     29 | 2 | 1614133353.000 | 43.8707494363 | -114.6541895997 | 2227.6000976562 | 0 | 23 | 0 | 0 | 0.7728892804 | 1.000 | 0.0000000000 | 0.7728892804 | 0.0007728893 | 2.7824014094 | 0.00
