@@ -1,7 +1,7 @@
 # gpxFileTool
 
 ## Intro
-gpxFileTool is a simple tool for manipulating GPX files. While it is generic enough to work with any type of activity, it was developed mainly to process GPX files from *cycling* activities recorded by 		devices such as a Garmin Edge or Wahoo Elemnt bike computer, or by mobile apps such as Strava or RideWithGps.
+gpxFileTool is a simple tool for manipulating GPX files. While it is generic enough to work with any type of activity, it was developed mainly to process GPX files from *cycling* activities recorded by devices such as a Garmin Edge or Wahoo Elemnt bike computer, or by mobile apps such as Strava or RideWithGps.
  
 The GPS elevation data in these GPX files can be subject to significant errors, which result in incorrect values for the total elevation gain/loss of the ride, and in incorrect values for the grade level during a climb/descent segment of the ride.  
 
@@ -156,7 +156,7 @@ This ride included a few stops during which the bike was not moving but the Garm
 ```
 WARNING: TrkPt at line #2717 has inconsistent distance (0.1909778990) and rise (0.6000022888) values! (speed=0.138 km/h)
 ```
-The very low value of the speed is an indication that the bike was actually stopped at that point.  Running the tool with the option --remove-stops *<speed>* will treat as being **stopped** any point where the speed is below *<speed>*.
+The very low value of the speed (0.138 km/h) is an indication that the bike was actually stopped at that point.  Running the tool with the option --remove-stops *<speed>* will treat as being **stopped** any point where the speed is below *<speed>*.
 
 ```
 $ gpxFileTool --remove-stops 0.5 --quiet --summary SampleGpxFiles/Knights_Ferry_GarminEdge520.gpx
@@ -222,7 +222,7 @@ numTrimTrkPts: 0
 
 #### Example 2
 
-There are situations in which one wants to turn a GPX route into a GPX ride.  For example, imagine you rode your bike for a couple of hours and at the end of the ride you realize you forgot to start your bike computer. Doh!  In this case you can use a GPX route editor (such as RideWithGPS) to draw the route you rode, and then add timing data to the GPX route to turn it into a ride, so that it can be uploaded to your Strava account to get distance and elevation gain credits for it.  In this example we take a manually created route, and we turn it into a ride using the current date and time as the activity's start time, and an average speed of 12.0 km/h:
+There are situations in which one wants to turn a GPX *route* into a GPX *ride*.  For example, imagine you rode your bike for a couple of hours and at the end of the ride you realize you forgot to start your bike computer. Doh!  In this case you can use a GPX route editor (such as RideWithGPS) to draw the route you rode, and then add timing data to the GPX route to turn it into a ride, so that it can be uploaded to your Strava account to get distance and elevation gain credits for it.  In this example we take a manually created route, and we turn it into a ride using the current date and time as the activity's start time, and an average speed of 12.0 km/h:
 
 ```
 $ gpxFileTool --start-time now --set-speed 12.0 SampleGpxFiles/TrailCreekEoP_RWGPS_Route.gpx > TrailCreekEoP_RWGPS_Ride.gpx
@@ -252,6 +252,23 @@ In this example we instruct the tool to generate a Comma-Separated-Value (CSV) o
 ```
 $ gpxFileTool --output-format csv SampleGpxFiles/Galena_Pass_Northbound.gpx > Galena_Pass_Northbound.csv
 ```
+
+First Header | Second Header
+------------ | -------------
+Content from cell 1 | Content from cell 2
+Content in the first column | Content in the second column
+
+
+ line# | trkpt | time | lat | lon | ele | power | atemp | cadence | hr | deltaP | deltaT | deltaE | run | distance | speed | grade
+------ | ----- | ---- | --- | --- | --- | ----- | ----- | ------- | -- | ------ | ------ | ------ | --- | -------- | ----- | -----
+    29 | 2 | 1614133353.000 | 43.8707494363 | -114.6541895997 | 2227.6000976562 | 0 | 23 | 0 | 0 | 0.7728892804 | 1.000 | 0.0000000000 | 0.7728892804 | 0.0007728893 | 2.7824014094 | 0.00
+    41 | 3 | 1614133354.000 | 43.8707595784 | -114.6541961376 | 2227.6000976562 | 0 | 23 | 0 | 0 | 1.2439280121 | 1.000 | 0.0000000000 | 1.2439280121 | 0.0020168173 | 4.4781408435 | 0.00
+    53 | 4 | 1614133355.000 | 43.8707726542 | -114.6542047709 | 2227.6000976562 | 0 | 23 | 0 | 0 | 1.6107158407 | 1.000 | 0.0000000000 | 1.6107158407 | 0.0036275331 | 5.7985770266 | 0.00
+    65 | 5 | 1614133356.000 | 43.8707880769 | -114.6542148292 | 2227.6000976562 | 0 | 23 | 0 | 0 | 1.8955443487 | 1.000 | 0.0000000000 | 1.8955443487 | 0.0055230775 | 6.8239596554 | 0.00
+    77 | 6 | 1614133357.000 | 43.8708057627 | -114.6542262286 | 2227.6000976562 | 0 | 23 | 0 | 0 | 2.1691166352 | 1.000 | 0.0000000000 | 2.1691166352 | 0.0076921941 | 7.8088198866 | 0.00
+    89 | 7 | 1614133358.000 | 43.8708256278 | -114.6542388014 | 2227.6000976562 | 0 | 23 | 0 | 0 | 2.4286473881 | 1.000 | 0.0000000000 | 2.4286473881 | 0.0101208415 | 8.7431305970 | 0.00
+   101 | 8 | 1614133359.000 | 43.8708472531 | -114.6542527154 | 2227.6000976562 | 0 | 23 | 0 | 0 | 2.6514529022 | 1.000 | 0.0000000000 | 2.6514529022 | 0.0127722944 | 9.5452304480 | 0.00
+
 
 This [screenshot](https://github.com/elfrances/gpxFileTool/blob/main/Images/Image-1.png) shows the graph of elevation vs. distance for this ride, created from the CSV file.
 
