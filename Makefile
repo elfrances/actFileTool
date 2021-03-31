@@ -19,7 +19,7 @@ BIN_DIR = .
 DEP_DIR = .
 OBJ_DIR = .
 
-CFLAGS = -D_GNU_SOURCE -I. -ggdb -Wall -Werror -O4
+CFLAGS = -D_GNU_SOURCE -I. -ggdb -Wall -Werror -O3
 LDFLAGS = -ggdb 
 
 SOURCES = $(wildcard *.c)

@@ -29,6 +29,21 @@ Being able to generate a CSV file allows the file to be processed by an app such
 
 In addition, the tool can read the GPX input file from standard input, and it can write the GPX output file to standard output, so that it can be used in a *pipe* to do multiple operations in one shot.
 
+## Building the tool
+
+To build the gpxFileTool binary all you need to do is run make at the top-level directory.
+
+```
+$ make
+cc -D_GNU_SOURCE -I. -ggdb -Wall -Werror -O3 -o main.o -c main.c
+rm -f build_info.c
+/bin/sh -ec 'echo "const char *buildInfo = \"built on `date` by `whoami`@`hostname`\";" >> build_info.c'
+cc -D_GNU_SOURCE -I. -ggdb -Wall -Werror -O3 -o ./build_info.o -c build_info.c
+rm -f build_info.c
+cc -ggdb  -o ./gpxFileTool ./main.o ./build_info.o -lm
+```
+The tool is known to build warning and error free under Ubuntu, OS/X, and Cygwin.
+
 ## About GPX Files
 
 GPX files are plain text files that use XML encoding based on the following [data schema](http://www.topografix.com/GPX/1/1/gpx.xsd). 
