@@ -6,7 +6,7 @@
  *   Created:            Fri Mar 12 09:56:32 PST 2021
  *
  *   Description:        This tool is used to process the activity metrics
- *                       in a GPX file.
+ *                       in a GPX or TCX file.
  *
  *=========================================================================
  *
@@ -178,6 +178,13 @@ static const char *gpxHeader = "<gpx creator=\"gpxFileTool\" version=\"%s\"\n"
                                "  xmlns:ns3=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\"\n"
                                "  xmlns=\"http://www.topografix.com/GPX/1/1\"\n"
                                "  xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:ns2=\"http://www.garmin.com/xmlschemas/GpxExtensions/v3\">\n";
+static const char *tcxHeader = "<TrainingCenterDatabase\n"
+                               "  xsi:schemaLocation=\"http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd\"\n"
+                               "  xmlns:ns5=\"http://www.garmin.com/xmlschemas/ActivityGoals/v1\"\n"
+                               "  xmlns:ns3=\"http://www.garmin.com/xmlschemas/ActivityExtension/v2\"\n"
+                               "  xmlns:ns2=\"http://www.garmin.com/xmlschemas/UserProfile/v2\"\n"
+                               "  xmlns=\"http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2\"\n"
+                               "  xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:ns4=\"http://www.garmin.com/xmlschemas/ProfileExtension/v1\">\n";
 
 static const double degToRad = (double) 0.01745329252;  // decimal degrees to radians
 static const double earthMeanRadius = (double) 6372797.560856;  // in meters
@@ -923,7 +930,7 @@ static int parseTcxFile(CmdArgs *pArgs, GpsTrk *pTrk)
                 }
                 pTrkPt->cadence = cadence;
                 pTrk->optTagCount++;
-            } else if (strstr(lineBuf, " <HeartRateBpm>") != NULL) {
+            } else if (strstr(lineBuf, " <HeartRateBpm") != NULL) {
                 lineNum = getLine(fp, lineBuf, sizeof (lineBuf), lineNum);
                 if (sscanf(lineBuf, " <Value>%d</Value>", &heartRate) == 1) {
                     // Got the heart rate!
@@ -1707,6 +1714,77 @@ static void printGpxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
 
 static void printTcxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
 {
+    time_t now;
+    struct tm brkDwnTime = {0};
+    char timeBuf[128];
+
+    // Print headers
+    fprintf(pArgs->outFile, "%s", xmlHeader);
+    fprintf(pArgs->outFile, "%s", tcxHeader);
+
+    // Print metadata
+    now = time(NULL);
+    strftime(timeBuf, sizeof (timeBuf), "%Y-%m-%dT%H:%M:%S", gmtime_r(&now, &brkDwnTime));
+
+    fprintf(pArgs->outFile, "  <Activities>\n");
+    fprintf(pArgs->outFile, "    <Activity Sport=\"Biking\">\n");
+    fprintf(pArgs->outFile, "      <Id>%s</Id>\n", timeBuf);
+    fprintf(pArgs->outFile, "      <Lap StartTime=\"%s\">\n", timeBuf);
+    fprintf(pArgs->outFile, "        <Track>\n");
+    {
+        TrkPt *p;
+
+        // Print all the track points
+        TAILQ_FOREACH(p, &pTrk->trkPtList, tqEntry) {
+            // Skip points where we were stopped
+            if (p->speed != 0.0) {
+                double timeStamp = (p->adjTime != 0.0) ? p->adjTime : p->time;    // use the adjusted timestamp if there is one
+                time_t time;
+                int ms = 0;
+
+                timeStamp += pTrk->timeOffset;
+                time = (time_t) timeStamp;  // seconds only
+                ms = (timeStamp - (double) time) * 1000.0;  // milliseconds
+                strftime(timeBuf, sizeof (timeBuf), "%Y-%m-%dT%H:%M:%S", gmtime_r(&time, &brkDwnTime));
+
+                fprintf(pArgs->outFile, "          <Trackpoint>\n");
+                fprintf(pArgs->outFile, "            <Time>%s.%03dZ</Time\n", timeBuf, ms);
+                fprintf(pArgs->outFile, "            <Position>\n");
+                fprintf(pArgs->outFile, "              <LatitudeDegrees>%.10lf</LatitudeDegrees>\n", p->latitude);
+                fprintf(pArgs->outFile, "              <LongitudeDegrees>%.10lf</LongitudeDegrees>\n", p->longitude);
+                fprintf(pArgs->outFile, "            </Position>\n");
+                fprintf(pArgs->outFile, "            <AltitudeMeters>%.10lf</AltitudeMeters>\n", p->elevation);
+                fprintf(pArgs->outFile, "            <DistanceMeters>%.10lf</DistanceMeters>\n", p->distance);
+
+                // Now the optional metrics, if any...
+                if ((pTrk->optTagCount != 0) && (pArgs->outMask != OM_NONE)) {
+                    if (pArgs->outMask & OM_CADENCE) {
+                        fprintf(pArgs->outFile, "            <Cadence>%d</Cadence>\n", p->cadence);
+                    }
+                    if (pArgs->outMask & OM_HR) {
+                        fprintf(pArgs->outFile, "            <HeartRateBpm xsi:type=\"HeartRateInBeatsPerMinute_t\">\n");
+                        fprintf(pArgs->outFile, "              <Value>%d</Value>\n", p->heartRate);
+                        fprintf(pArgs->outFile, "            </HeartRateBpm>\n");
+                    }
+                    if (pArgs->outMask & OM_POWER) {
+                        fprintf(pArgs->outFile, "            <Extensions>\n");
+                        fprintf(pArgs->outFile, "              <TPX xmlns=\"http://www.garmin.com/xmlschemas/ActivityExtension/v2\">\n");
+                        fprintf(pArgs->outFile, "                <Watts>%d</Watts>\n", p->power);
+                        fprintf(pArgs->outFile, "              </TPX>\n");
+                        fprintf(pArgs->outFile, "            </Extensions>\n");
+                    }
+                }
+
+                fprintf(pArgs->outFile, "          </Trackpoint>\n");
+
+            }
+        }
+    }
+    fprintf(pArgs->outFile, "        </Track>\n");
+    fprintf(pArgs->outFile, "      </Lap>\n");
+    fprintf(pArgs->outFile, "    </Activity\n");
+    fprintf(pArgs->outFile, "  </Activities>\n");
+    fprintf(pArgs->outFile, "</TrainingCenterDatabase>\n");
 }
 
 static void printOutput(GpsTrk *pTrk, CmdArgs *pArgs)
