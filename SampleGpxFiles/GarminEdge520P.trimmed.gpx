@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx creator="Garmin Connect" version="1.1"
+  xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/11.xsd"
+  xmlns:ns3="http://www.garmin.com/xmlschemas/TrackPointExtension/v1"
+  xmlns="http://www.topografix.com/GPX/1/1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ns2="http://www.garmin.com/xmlschemas/GpxExtensions/v3">
+  <metadata>
+    <link href="connect.garmin.com">
+      <text>Garmin Connect</text>
+    </link>
+    <time>2022-03-23T16:55:36.000Z</time>
+  </metadata>
+  <trk>
+    <name>Blaine County Cycling</name>
+    <type>cycling</type>
+    <trkseg>
+      <trkpt lat="43.62586635164916515350341796875" lon="-114.351975135505199432373046875">
+        <ele>1644.4000244140625</ele>
+        <time>2022-03-23T16:55:36.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>17.0</ns3:atemp>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="43.62586651928722858428955078125" lon="-114.35197454877197742462158203125">
+        <ele>1644.4000244140625</ele>
+        <time>2022-03-23T16:55:37.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>17.0</ns3:atemp>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="43.625866435468196868896484375" lon="-114.3519746325910091400146484375">
+        <ele>1644.5999755859375</ele>
+        <time>2022-03-23T16:55:38.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>17.0</ns3:atemp>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="43.62586635164916515350341796875" lon="-114.35197471641004085540771484375">
+        <ele>1644.4000244140625</ele>
+        <time>2022-03-23T16:55:39.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>17.0</ns3:atemp>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="43.6258662678301334381103515625" lon="-114.35197471641004085540771484375">
+        <ele>1644.4000244140625</ele>
+        <time>2022-03-23T16:55:40.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>17.0</ns3:atemp>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

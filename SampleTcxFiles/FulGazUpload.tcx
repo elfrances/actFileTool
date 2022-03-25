@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd http://www.garmin.com/xmlschemas/ActivityExtension/v2 http://www.garmin.com/xmlschemas/ActivityExtensionv2.xsd">
+<Activities>
+  <Activity Sport="Biking">
+    <Id>2022-03-12T17:05:05.0133245Z</Id>
+    <Lap StartTime="2022-0312T15:30:09.0000000Z">
+      <TotalTimeSeconds>5686</TotalTimeSeconds>
+      <DistanceMeters>24289.9992372841</DistanceMeters>
+      <Calories>1154</Calories>
+      <Intensity>Active</Intensity>
+      <Cadence>70</Cadence>
+      <TriggerMethod>Manual</TriggerMethod>
+      <Track>
+        <Trackpoint>
+          <Time>2022-03-12T15:30:09.0000000Z</Time>
+          <HeartRateBpm xsi:type="HeartRateInBeatsPerMinute_t">
+            <Value>98</Value>
+          </HeartRateBpm>
+          <Position>
+            <LatitudeDegrees>44.0982360839844</LatitudeDegrees>
+            <LongitudeDegrees>5.40741395950317</LongitudeDegrees>
+          </Position>
+          <AltitudeMeters>701.299987792969</AltitudeMeters>
+          <DistanceMeters>0</DistanceMeters>
+          <Cadence>0</Cadence>
+          <Extensions>
+            <TPX xmlns="http://www.garmin.com/xmlschemas/ActivityExtension/v2">
+              <Speed>0.820000656000001</Speed>
+              <Watts>19</Watts>
+            </TPX>
+          </Extensions>
+        </Trackpoint>

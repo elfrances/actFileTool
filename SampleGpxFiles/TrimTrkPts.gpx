@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx creator="Garmin Connect" version="1.1"
+  xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/11.xsd"
+  xmlns:ns3="http://www.garmin.com/xmlschemas/TrackPointExtension/v1"
+  xmlns="http://www.topografix.com/GPX/1/1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ns2="http://www.garmin.com/xmlschemas/GpxExtensions/v3">
+  <metadata>
+    <link href="connect.garmin.com">
+      <text>Garmin Connect</text>
+    </link>
+    <time>2021-10-04T20:54:20.000Z</time>
+  </metadata>
+  <trk>
+    <name>Sun Valley Cycling</name>
+    <type>cycling</type>
+    <trkseg>
+      <trkpt lat="43.66241530515253543853759765625" lon="-114.35043915174901485443115234375">
+        <ele>1749.4000244140625</ele>
+        <time>2021-10-04T20:54:52.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>26.0</ns3:atemp>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="43.66245486773550510406494140625" lon="-114.3503545783460140228271484375">
+        <ele>1749.4000244140625</ele>
+        <time>2021-10-04T20:54:53.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>26.0</ns3:atemp>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="43.6624965257942676544189453125" lon="-114.3502667360007762908935546875">
+        <ele>1749.5999755859375</ele>
+        <time>2021-10-04T20:54:54.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>26.0</ns3:atemp>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="43.6625394411385059356689453125" lon="-114.35017629526555538177490234375">
+        <ele>1749.800048828125</ele>
+        <time>2021-10-04T20:54:55.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>26.0</ns3:atemp>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="43.66258411668241024017333984375" lon="-114.3500843457877635955810546875">
+        <ele>1749.800048828125</ele>
+        <time>2021-10-04T20:54:56.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>26.0</ns3:atemp>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="43.66263105534017086029052734375" lon="-114.34998929500579833984375">
+        <ele>1750</ele>
+        <time>2021-10-04T20:54:57.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>26.0</ns3:atemp>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="43.66267715580761432647705078125" lon="-114.3498915620148181915283203125">
+        <ele>1750</ele>
+        <time>2021-10-04T20:54:58.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>26.0</ns3:atemp>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="43.662723004817962646484375" lon="-114.34979005716741085052490234375">
+        <ele>1750</ele>
+        <time>2021-10-04T20:54:59.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>26.0</ns3:atemp>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="43.6627701111137866973876953125" lon="-114.349687211215496063232421875">
+        <ele>1750.199951171875</ele>
+        <time>2021-10-04T20:55:00.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>26.0</ns3:atemp>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="43.6628197319805622100830078125" lon="-114.3495841138064861297607421875">
+        <ele>1750.199951171875</ele>
+        <time>2021-10-04T20:55:01.000Z</time>
+        <extensions>
+          <ns3:TrackPointExtension>
+            <ns3:atemp>26.0</ns3:atemp>
+          </ns3:TrackPointExtension>
+        </extensions>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>
