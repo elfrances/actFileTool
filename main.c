@@ -129,13 +129,13 @@ typedef struct GpsTrk {
     int maxCadence;
     int maxTemp;
     int minTemp;
-    double maxDeltaP;
+    double maxDeltaD;
     double maxDeltaT;
     double maxSpeed;
     double maxGrade;
     double minGrade;
 
-    const TrkPt *maxDeltaPTrkPt;    // TrkPt with max distance
+    const TrkPt *maxDeltaDTrkPt;    // TrkPt with max distance
     const TrkPt *maxDeltaTTrkPt;    // TrkPt with max time interval
     const TrkPt *maxSpeedTrkPt;     // TrkPt with max speed value
     const TrkPt *maxGradeTrkPt;     // TrkPt with max grade value
@@ -1377,6 +1377,12 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
             dumpTrkPts(pTrk, p2, 2, 0);
         }
 
+        // Update the max dist value
+        if (p2->dist > pTrk->maxDeltaD) {
+            pTrk->maxDeltaD = p2->dist;
+            pTrk->maxDeltaDTrkPt = p2;
+        }
+
         // Compute the time interval between the two points.
         // Typically fixed at 1-sec, but some GPS devices (e.g.
         // Garmin Edge) may use a "smart" recording mode that
@@ -1405,7 +1411,7 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
 
         // Update the max speed value
         if (p2->speed > pTrk->maxSpeed) {
-             pTrk->maxSpeed = (p2->speed * 3.6);    // in km/h
+             pTrk->maxSpeed = p2->speed;
              pTrk->maxSpeedTrkPt = p2;
         }
 
@@ -1639,9 +1645,9 @@ static void printSummary(GpsTrk *pTrk, CmdArgs *pArgs)
     fprintf(pArgs->outFile, "     distance: %.10lf km\n", (pTrk->distance / 1000.0));
     fprintf(pArgs->outFile, "     elevGain: %.10lf m\n", pTrk->elevGain);
     fprintf(pArgs->outFile, "     elevLoss: %.10lf m\n", pTrk->elevLoss);
-    if ((p = pTrk->maxDeltaPTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "    maxDeltaP: %.3lf m at TrkPt #%d (%s) : time = %ld s, dist = %.3lf km\n",
-                pTrk->maxDeltaP, p->index, fmtTrkPtIdx(p), (time_t) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
+    if ((p = pTrk->maxDeltaDTrkPt) != NULL) {
+        fprintf(pArgs->outFile, "    maxDeltaD: %.3lf m at TrkPt #%d (%s) : time = %ld s, dist = %.3lf km\n",
+                pTrk->maxDeltaD, p->index, fmtTrkPtIdx(p), (time_t) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
     }
     if ((p = pTrk->maxDeltaTTrkPt) != NULL) {
         fprintf(pArgs->outFile, "    maxDeltaT: %.3lf sec at TrkPt #%d (%s) : time = %ld s, dist = %.3lf km\n",
@@ -1649,7 +1655,7 @@ static void printSummary(GpsTrk *pTrk, CmdArgs *pArgs)
     }
     if ((p = pTrk->maxSpeedTrkPt) != NULL) {
         fprintf(pArgs->outFile, "     maxSpeed: %.10lf km/h at TrkPt #%d (%s) : time = %ld s, dist = %.3lf km\n",
-                pTrk->maxSpeed, p->index, fmtTrkPtIdx(p), (time_t) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
+                (pTrk->maxSpeed * 3.6), p->index, fmtTrkPtIdx(p), (time_t) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
     }
     if ((p = pTrk->maxGradeTrkPt) != NULL) {
         fprintf(pArgs->outFile, "     maxGrade: %.2lf%% at TrkPt #%d (%s) : time = %ld s, dist = %.3lf km\n",
@@ -1834,6 +1840,7 @@ static void printTcxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
     fprintf(pArgs->outFile, "      <Lap StartTime=\"%s\">\n", timeBuf);
     fprintf(pArgs->outFile, "        <TotalTimeSeconds>%.3lf</TotalTimeSeconds>\n", pTrk->time);
     fprintf(pArgs->outFile, "        <DistanceMeters>%.10lf</DistanceMeters>\n", pTrk->distance);
+    fprintf(pArgs->outFile, "        <MaximumSpeed>%.10lf</MaximumSpeed>\n", pTrk->maxSpeed);
     fprintf(pArgs->outFile, "        <Track>\n");
     {
         TrkPt *p;
