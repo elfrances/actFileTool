@@ -1,31 +1,31 @@
 # gpxFileTool
 
 ## Intro
-gpxFileTool is a simple tool for manipulating GPX files. While it is generic enough to work with any type of activity, it was developed mainly to process GPX files from *cycling* activities recorded by devices such as a Garmin Edge or Wahoo Elemnt bike computer, or by mobile apps such as Strava or RideWithGps.
+gpxFileTool is a simple tool for manipulating GPX and TCX files. While it is generic enough to work with any type of activity, it was developed mainly to process GPX files from *cycling* activities recorded by devices such as a Garmin Edge or Wahoo Elemnt bike computer, or by mobile apps such as Strava or RideWithGps.
  
 The GPS elevation data in these GPX files can be subject to significant errors, which result in incorrect values for the total elevation gain/loss of the ride, and in incorrect values for the grade level during a climb/descent segment of the ride.  
 
-Having an incorrect value for the total elevation gain/loss simply skews one's own personal statistics.  But the incorrect grade level is a problem when such GPX file is used to control a cycling "smart trainer".  The bogus elevation values can result in spikes in the grade level that make the feeling of the *virtual ride* unrealistic, and in extreme cases it can suddenly **lock up** the smart trainer. Imagine you are pedaling your bike on the trainer at a steady pace while climbing a segment with a moderate 4% grade, when all of a sudden you get a spike that sends the grade level to 14% ... Yikes!
+Having an incorrect value for the total elevation gain/loss simply skews one's own personal statistics.  But the incorrect grade level is a problem when such GPX file is used to control a cycling "smart trainer".  The bogus elevation values can result in spikes in the grade level that make the feeling of the *virtual ride* unrealistic, and in extreme cases it can suddenly **lock up** the smart trainer.
 
 One of the design goals for the gpxFileTool is to allow the user to correct these errors, so that the virtual ride on the smart trainer is more realistic. 
 
 The tool has the following features:
 
 1. Can trim out a range of points.
-2. Can smooth out the elevation values.
+2. Can smooth out the elevation or grade values.
 3. Can limit the min/max grade level.
-4. Can filter out optional metrics.
-5. Can generate a new GPX file or a CSV file.
+4. Can filter out optional sensor data.
+5. Can generate a new GPX, TCX, or CSV file.
 
 Trimming out a range of points is useful to remove such things as "red light", "photo shot", or "nature break" stops during a ride.
 
-Smoothing out the elevation values is the main task when preparing a GPX file for a virtual route. The tool uses a Simple Moving Average (SMA) algorithm, over a configurable range of points, to do the elevation smoothing.
+Smoothing out the elevation or grade values is the main task when preparing a GPX file for a virtual route. The tool uses a Simple Moving Average (SMA) algorithm, over a configurable range of points, to do the elevation smoothing.
 
 Limiting the min/max grade levels is useful when the user knows *a priori* what those limits are for the given route.
 
-Filtering out optional metrics is useful to remove unwanted sensor data, such as heart rate or cadence.
+Filtering out optional metrics is useful to remove unwanted sensor data, such as cadence, heart rate, or power.
 
-Being able to generate a CSV file allows the file to be processed by an app such as Excel or LibreOffice, to do data analysis and visualization.
+Being able to generate a CSV file allows the file to be processed by an app such as Excel or LibreOffice, to do detailed data analysis and visualization.
 
 In addition, the tool can read the GPX input file from standard input, and it can write the GPX output file to standard output, so that it can be used in a *pipe* to do multiple operations in one shot.
 
@@ -80,7 +80,6 @@ The latitude and longitude values are expressed in decimal degrees, the elevatio
 The following examples show how to use the tool.  Running the tool with the option --help will show a "manual page" describing all the options: 
 
 ```
-$ gpxFileTool --help
 SYNTAX:
     gpxFileTool [OPTIONS] <file> [<file2> ...]
 
@@ -89,45 +88,57 @@ SYNTAX:
     tool will attempt to stitch them together into a single output file.
 
 OPTIONS:
+    --activity-type {ride|hike|run|walk|vride|other}
+        Specifies the type of activity in the output file. By default the
+        output file inherits the activity type of the input file.
+    --close-gap <point>
+        Close the time gap at the specified track point.
     --help
         Show this help and exit.
     --max-grade <value>
         Limit the maximum grade to the specified value. The elevation
         values are adjusted accordingly.
+    --max-time-gap <value>
+        Limit the maximum time gap between points to the specified value.
     --min-grade <value>
         Limit the minimum grade to the specified value. The elevation
         values are adjusted accordingly.
     --name <name>
         String to use for the <name> tag of the track in the output
-        GPX file.
+        file.
     --output-file <name>
         Write the output data into the specified file. If not specified
         the output data is written to standard output.
     --output-filter <mask>
         A bit mask that specifies the set of optional metrics to be
-        suppressed from the output:
-            0x01 - Ambient Temperature
+        suppressed from the output. By default, all available optional
+        metrics are included in the output.            0x01 - Ambient Temperature
             0x02 - Cadence
             0x04 - Heart Rate
             0x08 - Power
-    --output-format {csv|gpx}
+    --output-format {csv|gpx|tcx}
         Specifies the format of the output data.
     --quiet
         Suppress all warning messages.
     --range <a,b>
-        Limit the points to be processed to the range between point
+        Limit the track points to be processed to the range between point
         'a' and point 'b', inclusive.
-    --rel-time
-        Use relative timestamps in the CSV output.
-    --remove-stops <speed>
+    --rel-time <fmt>
+        Use relative timestamps in the CSV output, using the following
+        format:
+            1 - seconds
+            2 - hh:mm:ss
+    --remove-stops <min-speed>
         Remove any points with a speed below the specified minimum
-        speed (in km/s), assuming we were actually stopped at the time.
-    --set-speed <speed>
-        Use the specified speed value (in km/h) to generate missing
-        timestamps in the input GPX file.
-    --sma-window <value>
+        speed (in km/h), assuming that bike was stopped at the time
+        and the low speed value was a product of bogus GPS data.    --set-speed <avg-speed>
+        Use the specified average speed value (in km/h) to generate missing
+        timestamps, or to replace the existing timestamps, in the input file.
+    --sma-value {elevation|grade|power}
+        Specifies the metric to be smoothed out by the Simple Moving Average.
+    --sma-window <size>
         Size of the window used to compute the Simple Moving Average
-        of the elevation values, in order to smooth them out. It must be
+        of the selected values, in order to smooth them out. It must be
         an odd value.
     --start-time <time>
         Start time for the activity (in UTC time). The timestamp of each
@@ -139,6 +150,9 @@ OPTIONS:
         Trim all the points in the specified range. The timestamps of
         the points after point 'b' are adjusted accordingly, to avoid
         a discontinuity in the time sequence.
+    --verbatim
+        Process the input file(s) verbatim, without making any adjust-
+        ments to the data.
     --version
         Show version information and exit.
 ```
@@ -159,7 +173,7 @@ numTrimTrkPts: 0
      distance: 108.6702326136 km
      elevGain: 601.9189828138 m
      elevLoss: 587.8633776238 m
-    maxDeltaP: 69.766 m at TrkPt #542 (line #5427) : time = 2615 s, dist = 21.94 km
+    maxDeltaD: 69.766 m at TrkPt #542 (line #5427) : time = 2615 s, dist = 21.94 km
     maxDeltaT: 58.000 sec at TrkPt #1198 (line #11987) : time = 5346 s, dist = 40.29 km
      maxSpeed: 53.1624730132 km/h at TrkPt #822 (line #8227) : time = 3781 s, dist = 30.37 km
      maxGrade: 550.79% at TrkPt #1772 (line #17727) : time = 7782 s, dist = 49.67 km
@@ -185,7 +199,7 @@ numTrimTrkPts: 0
      distance: 108.6454860948 km
      elevGain: 583.7220803293 m
      elevLoss: 587.1999111176 m
-    maxDeltaP: 69.766 m at TrkPt #542 (line #5427) : time = 2615 s, dist = 21.94 km
+    maxDeltaD: 69.766 m at TrkPt #542 (line #5427) : time = 2615 s, dist = 21.94 km
     maxDeltaT: 13.000 sec at TrkPt #1641 (line #16417) : time = 7199 s, dist = 48.14 km
      maxSpeed: 53.1624730132 km/h at TrkPt #822 (line #8227) : time = 3781 s, dist = 30.37 km
      maxGrade: 218.30% at TrkPt #1690 (line #16907) : time = 7427 s, dist = 48.49 km
@@ -207,7 +221,7 @@ numTrimTrkPts: 0
      distance: 108.6454860948 km
      elevGain: 617.6527809595 m
      elevLoss: 468.2622134643 m
-    maxDeltaP: 69.766 m at TrkPt #542 (line #5427) : time = 2615 s, dist = 21.94 km
+    maxDeltaD: 69.766 m at TrkPt #542 (line #5427) : time = 2615 s, dist = 21.94 km
     maxDeltaT: 13.000 sec at TrkPt #1641 (line #16417) : time = 7199 s, dist = 48.14 km
      maxSpeed: 53.1624730132 km/h at TrkPt #822 (line #8227) : time = 3781 s, dist = 30.37 km
      maxGrade: 49.98% at TrkPt #1690 (line #16907) : time = 7427 s, dist = 48.49 km
@@ -228,7 +242,7 @@ numTrimTrkPts: 0
      distance: 108.6454860948 km
      elevGain: 598.4443934391 m
      elevLoss: 467.3053959259 m
-    maxDeltaP: 69.766 m at TrkPt #542 (line #5427) : time = 2615 s, dist = 21.94 km
+    maxDeltaD: 69.766 m at TrkPt #542 (line #5427) : time = 2615 s, dist = 21.94 km
     maxDeltaT: 13.000 sec at TrkPt #1641 (line #16417) : time = 7199 s, dist = 48.14 km
      maxSpeed: 53.1624730132 km/h at TrkPt #822 (line #8227) : time = 3781 s, dist = 30.37 km
      maxGrade: 8.00% at TrkPt #1160 (line #11607) : time = 5111 s, dist = 40.18 km
@@ -253,7 +267,7 @@ numTrimTrkPts: 0
      distance: 2.5610856060 km
      elevGain: 164.3000000000 m
      elevLoss: 2.4000000000 m
-    maxDeltaP: 129.624 m at TrkPt #17 (line #76) : time = 246 s, dist = 0.82 km
+    maxDeltaD: 129.624 m at TrkPt #17 (line #76) : time = 246 s, dist = 0.82 km
     maxDeltaT: 38.887 sec at TrkPt #17 (line #76) : time = 246 s, dist = 0.82 km
      maxSpeed: 12.0166019232 km/h at TrkPt #27 (line #116) : time = 301 s, dist = 1.00 km
      maxGrade: 30.87% at TrkPt #60 (line #248) : time = 503 s, dist = 1.68 km
@@ -302,7 +316,7 @@ numTrimTrkPts: 0
      distance: 0.3066017305 km
      elevGain: 1.1000000000 m
      elevLoss: 0.3000000000 m
-    maxDeltaP: 3.840 m at TrkPt #67 (line #274) : time = 67 s, dist = 0.08 km
+    maxDeltaD: 3.840 m at TrkPt #67 (line #274) : time = 67 s, dist = 0.08 km
     maxDeltaT: 2.000 sec at TrkPt #2 (line #14) : time = 2 s, dist = 0.00 km
      maxSpeed: 13.8249573604 km/h at TrkPt #67 (line #274) : time = 67 s, dist = 0.08 km
      maxGrade: 15.04% at TrkPt #41 (line #170) : time = 41 s, dist = 0.04 km
@@ -318,7 +332,7 @@ numTrimTrkPts: 0
      distance: 0.3403108771 km
      elevGain: 0.3000000000 m
      elevLoss: 1.0000000000 m
-    maxDeltaP: 8.628 m at TrkPt #4 (line #22) : time = 4 s, dist = 0.02 km
+    maxDeltaD: 8.628 m at TrkPt #4 (line #22) : time = 4 s, dist = 0.02 km
     maxDeltaT: 2.000 sec at TrkPt #3 (line #18) : time = 3 s, dist = 0.01 km
      maxSpeed: 31.0613213108 km/h at TrkPt #4 (line #22) : time = 4 s, dist = 0.02 km
      maxGrade: 9.54% at TrkPt #15 (line #66) : time = 16 s, dist = 0.04 km
@@ -335,7 +349,7 @@ numTrimTrkPts: 0
      distance: 0.6886085160 km
      elevGain: 1.4000000000 m
      elevLoss: 1.6000000000 m
-    maxDeltaP: 44.216 m at TrkPt #219 (line #884) : time = 372 s, dist = 0.35 km
+    maxDeltaD: 44.216 m at TrkPt #219 (line #884) : time = 372 s, dist = 0.35 km
     maxDeltaT: 155.000 sec at TrkPt #219 (line #884) : time = 372 s, dist = 0.35 km
      maxSpeed: 31.0613213108 km/h at TrkPt #222 (line #896) : time = 376 s, dist = 0.37 km
      maxGrade: 15.04% at TrkPt #40 (line #168) : time = 39 s, dist = 0.04 km
