@@ -162,7 +162,8 @@ typedef enum OutFmt {
     nil = 0,
     csv = 1,    // Comma-Separated-Values format
     gpx = 2,    // GPS Exchange format
-    tcx = 3     // Training Center Exchange format
+    shiz = 3,   // FulGaz format
+    tcx = 4     // Training Center Exchange format
 } OutFmt;
 
 // Timestamp format
@@ -262,7 +263,7 @@ static const char *help =
         "            0x02 - Cadence\n"
         "            0x04 - Heart Rate\n"
         "            0x08 - Power\n"
-        "    --output-format {csv|gpx|tcx}\n"
+        "    --output-format {csv|gpx|shiz|tcx}\n"
         "        Specifies the format of the output data.\n"
         "    --quiet\n"
         "        Suppress all warning messages.\n"
@@ -397,6 +398,8 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
                 pArgs->outFmt = csv;
             } else if (strcmp(val, "gpx") == 0) {
                 pArgs->outFmt = gpx;
+            } else if (strcmp(val, "shiz") == 0) {
+                pArgs->outFmt = shiz;
             } else if (strcmp(val, "tcx") == 0) {
                 pArgs->outFmt = tcx;
             } else {
@@ -1820,6 +1823,32 @@ static const char *tcxActType(GpsTrk *pTrk, CmdArgs *pArgs)
     return actTypeTbl[type];
 }
 
+// Format the data according to the FulGaz format
+static void printShizFmt(GpsTrk *pTrk, CmdArgs *pArgs)
+{
+    time_t now;
+    struct tm brkDwnTime = {0};
+    char dateBuf[64];
+    double baseTime = TAILQ_FIRST(&pTrk->trkPtList)->timestamp;
+    TrkPt *p;
+
+    now = time(NULL);
+    strftime(dateBuf, sizeof (dateBuf), "%A, %B %d, %Y", gmtime_r(&now, &brkDwnTime));
+
+    fprintf(pArgs->outFile, "{\"extra\":{\"duration\":\"%s\",\"distance\":%.5lf,\"toughness\":\"%u\",\"elevation_gain\":%u,\"date_processed\":\"%s\",\"speed_filter\":\"5\",\"elevation_filter\":\"4\",\"grade_filter\":\"4\",\"timeshift\":\"-4\"},\"gpx\":{\"trk\":{\"trkseg\":{\"trkpt\":[",
+            fmtTimeStamp(pTrk->time, hhmmss), pTrk->distance, 123, (unsigned) pTrk->elevGain, dateBuf);
+
+    TAILQ_FOREACH(p, &pTrk->trkPtList, tqEntry) {
+        // The first "trkpt" is included in the header line,
+        // while all the other ones are printed on separate
+        // lines...
+        fprintf(pArgs->outFile, "{\"-lon\":\"%.7lf\",\"-lat\":\"%.7lf\",\"speed\":\"%.1lf\",\"ele\":\"%.3lf\",\"distance\":\"%.5lf\",\"bearing\":\"%.2lf\",\"slope\":\"%.1lf\",\"time\":\"%s\",\"index\":%u,\"cadence\":%u,\"p\":%u}%s",
+                p->longitude, p->latitude, p->speed, p->elevation, p->distance, 0.0, p->grade, fmtTimeStamp((p->timestamp - baseTime), hhmmss), (p->index - 1), p->cadence, 0, (TAILQ_NEXT(p, tqEntry) != NULL) ? ",\n" : "");
+    }
+
+    fprintf(pArgs->outFile, "]}},\"seg\":[]}}\n");
+}
+
 // Format the data according to the Garmin Connect style
 static void printTcxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
 {
@@ -1918,6 +1947,8 @@ static void printOutput(GpsTrk *pTrk, CmdArgs *pArgs)
         printCsvFmt(pTrk, pArgs);
     } else if (pArgs->outFmt == gpx) {
         printGpxFmt(pTrk, pArgs);
+    } else if (pArgs->outFmt == shiz) {
+        printShizFmt(pTrk, pArgs);
     } else if (pArgs->outFmt == tcx) {
         printTcxFmt(pTrk, pArgs);
     }
