@@ -1880,8 +1880,11 @@ static void printShizFmt(GpsTrk *pTrk, CmdArgs *pArgs)
     now = time(NULL);
     strftime(dateBuf, sizeof (dateBuf), "%A, %B %d, %Y", gmtime_r(&now, &brkDwnTime));
 
+    // This format is valid as of FulGaz version 4.2.15
+    // Duration is in hh:mm:ss, distance is in kilometers,
+    // elevation is in meters, and speed is in km/h.
     fprintf(pArgs->outFile, "{\"extra\":{\"duration\":\"%s\",\"distance\":%.5lf,\"toughness\":\"%u\",\"elevation_gain\":%u,\"date_processed\":\"%s\",\"speed_filter\":\"5\",\"elevation_filter\":\"4\",\"grade_filter\":\"4\",\"timeshift\":\"-4\"},\"gpx\":{\"trk\":{\"trkseg\":{\"trkpt\":[",
-            fmtTimeStamp(pTrk->time, hms), pTrk->distance, 123, (unsigned) pTrk->elevGain, dateBuf);
+            fmtTimeStamp(pTrk->time, hms), (pTrk->distance / 1000.0), 123, (unsigned) pTrk->elevGain, dateBuf);
 
     TAILQ_FOREACH(p, &pTrk->trkPtList, tqEntry) {
         int index = p->index - 1;   // shiz index is 0-based
