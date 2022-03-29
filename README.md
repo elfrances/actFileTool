@@ -3,9 +3,9 @@
 ## Intro
 gpxFileTool is a simple tool for manipulating GPX and TCX files. While it is generic enough to work with any type of activity, it was developed mainly to process GPX files from *cycling* activities recorded by devices such as a Garmin Edge or Wahoo Elemnt bike computer, or by mobile apps such as Strava or RideWithGps.
  
-The GPS elevation data in these GPX files can be subject to significant errors, which result in incorrect values for the total elevation gain/loss of the ride, and in incorrect values for the grade level during a climb/descent segment of the ride.  
+The GPS elevation data in these GPX files can be subject to significant errors, which result in incorrect values for the total elevation gain/loss of the ride, and in incorrect values for the grade level (slope) during a climb/descent segment of the ride.  
 
-Having an incorrect value for the total elevation gain/loss simply skews one's own personal statistics.  But the incorrect grade level is a problem when such GPX file is used to control a cycling "smart trainer".  The bogus elevation values can result in spikes in the grade level that make the feeling of the *virtual ride* unrealistic, and in extreme cases it can suddenly **lock up** the smart trainer.
+Having an incorrect value for the total elevation gain/loss simply skews one's own personal statistics.  But the incorrect grade level is a problem when such GPX file is used to control an indoor cycling "smart trainer".  The bogus elevation values can result in spikes in the grade level that make the feeling of the *virtual ride* unrealistic, and in extreme cases it can suddenly **lock up** the smart trainer.
 
 One of the design goals for the gpxFileTool is to allow the user to correct these errors, so that the virtual ride on the smart trainer is more realistic. 
 
@@ -27,11 +27,9 @@ Filtering out optional metrics is useful to remove unwanted sensor data, such as
 
 Being able to generate a CSV file allows the file to be processed by an app such as Excel or LibreOffice, to do detailed data analysis and visualization.
 
-In addition, the tool can read the GPX input file from standard input, and it can write the GPX output file to standard output, so that it can be used in a *pipe* to do multiple operations in one shot.
-
 ## Building the tool
 
-To build the gpxFileTool binary all you need to do is run make at the top-level directory.
+To build the gpxFileTool binary all you need to do is run 'make' at the top-level directory.
 
 ```
 $ make
@@ -48,7 +46,7 @@ The tool is known to build warning and error free under Ubuntu, OS/X, and Cygwin
 
 GPX files are plain text files that use XML encoding based on the following [data schema](http://www.topografix.com/GPX/1/1/gpx.xsd). 
 
-In a nutshell, a GPX file contains a "track", which contains one or more "track segments", which contain the actual "track points". Each track point includes the GPS coordinates (latitude, longitude, elevation) plus an optional timing data.  Whether or not the GPX file includes this timing data, is the main difference between a GPX *route* and a GPX *ride*.
+In a nutshell, a GPX file contains a "track", which contains one or more "track segments", which contain the actual "track points". Each track point includes the GPS coordinates (latitude, longitude, elevation) plus an optional timing data.  Whether or not the GPX file includes this timing data, is the main difference between a GPX *ride* and a GPX *route*. A GPX route is typically created using a mapping app, such as RideWithGps or Strava, while a GPX ride is typically created by a bike computer or a cycling app during an actual activity.   
 
 Below you can see a clip from a GPX ride showing the general structure of the data:
 
@@ -83,9 +81,7 @@ The following examples show how to use the tool.  Running the tool with the opti
 SYNTAX:
     gpxFileTool [OPTIONS] <file> [<file2> ...]
 
-    When <file> is omitted or it is the string "-" input data is read
-    from standard input.  When multiple input files are specified, the
-    tool will attempt to stitch them together into a single output file.
+    When multiple input files are specified, the tool will attempt to"    stitch them together into a single output file.
 
 OPTIONS:
     --activity-type {ride|hike|run|walk|vride|other}
@@ -112,29 +108,28 @@ OPTIONS:
     --output-filter <mask>
         A bit mask that specifies the set of optional metrics to be
         suppressed from the output. By default, all available optional
-        metrics are included in the output.            0x01 - Ambient Temperature
+        metrics are included in the output.
+            0x01 - Ambient Temperature
             0x02 - Cadence
             0x04 - Heart Rate
             0x08 - Power
-    --output-format {csv|gpx|tcx}
+    --output-format {csv|gpx|shiz|tcx}
         Specifies the format of the output data.
     --quiet
         Suppress all warning messages.
     --range <a,b>
         Limit the track points to be processed to the range between point
         'a' and point 'b', inclusive.
-    --rel-time <fmt>
-        Use relative timestamps in the CSV output, using the following
-        format:
-            1 - seconds
-            2 - hh:mm:ss
+    --rel-time {seconds|hhmmss}
+        Use relative timestamps in the CSV output, using the specified
+        format.
     --remove-stops <min-speed>
         Remove any points with a speed below the specified minimum
         speed (in km/h), assuming that bike was stopped at the time
         and the low speed value was a product of bogus GPS data.    --set-speed <avg-speed>
         Use the specified average speed value (in km/h) to generate missing
         timestamps, or to replace the existing timestamps, in the input file.
-    --sma-value {elevation|grade|power}
+    --sma-metric {elevation|grade|power}
         Specifies the metric to be smoothed out by the Simple Moving Average.
     --sma-window <size>
         Size of the window used to compute the Simple Moving Average
