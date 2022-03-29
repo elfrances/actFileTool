@@ -81,7 +81,8 @@ The following examples show how to use the tool.  Running the tool with the opti
 SYNTAX:
     gpxFileTool [OPTIONS] <file> [<file2> ...]
 
-    When multiple input files are specified, the tool will attempt to"    stitch them together into a single output file.
+    When multiple input files are specified, the tool will attempt to
+    stitch them together into a single output file.
 
 OPTIONS:
     --activity-type {ride|hike|run|walk|vride|other}
@@ -94,8 +95,6 @@ OPTIONS:
     --max-grade <value>
         Limit the maximum grade to the specified value. The elevation
         values are adjusted accordingly.
-    --max-time-gap <value>
-        Limit the maximum time gap between points to the specified value.
     --min-grade <value>
         Limit the minimum grade to the specified value. The elevation
         values are adjusted accordingly.
@@ -120,13 +119,10 @@ OPTIONS:
     --range <a,b>
         Limit the track points to be processed to the range between point
         'a' and point 'b', inclusive.
-    --rel-time {seconds|hhmmss}
+    --rel-time {sec|hms}
         Use relative timestamps in the CSV output, using the specified
         format.
-    --remove-stops <min-speed>
-        Remove any points with a speed below the specified minimum
-        speed (in km/h), assuming that bike was stopped at the time
-        and the low speed value was a product of bogus GPS data.    --set-speed <avg-speed>
+    --set-speed <avg-speed>
         Use the specified average speed value (in km/h) to generate missing
         timestamps, or to replace the existing timestamps, in the input file.
     --sma-metric {elevation|grade|power}
@@ -154,140 +150,135 @@ OPTIONS:
 
 #### Example 1
 
-In this example we read in a GPX file created by a Garmin Edge 520 Plus bike computer, and simply print a summary of its data. The option --quiet is used to suppress all warnings.  The summary includes the total number of track points processed, the duration of the ride, its distance and elevation gain/loss, max/min grade, etc.
+In this example we process a GPX file created by a Wahoo Elemnt BOLT bike computer, and simply print a summary of its data.
 
 ```
-$ gpxFileTool --quiet --summary SampleGpxFiles/Knights_Ferry_GarminEdge520.gpx
-    numTrkPts: 3635
- numDupTrkPts: 0
+$ gpxFileTool --summary SampleGpxFiles/WahooElmntBolt.gpx
+INFO: Discarding duplicate TrkPt #9 (SampleGpxFiles/WahooElmntBolt.gpx:82) !
+INFO: Discarding duplicate TrkPt #10 (SampleGpxFiles/WahooElmntBolt.gpx:91) !
+INFO: Discarding duplicate TrkPt #11 (SampleGpxFiles/WahooElmntBolt.gpx:100) !
+INFO: Discarding duplicate TrkPt #12 (SampleGpxFiles/WahooElmntBolt.gpx:109) !
+INFO: Discarding duplicate TrkPt #13 (SampleGpxFiles/WahooElmntBolt.gpx:118) !
+INFO: Discarding duplicate TrkPt #14 (SampleGpxFiles/WahooElmntBolt.gpx:127) !
+INFO: Discarding duplicate TrkPt #15 (SampleGpxFiles/WahooElmntBolt.gpx:136) !
+INFO: Discarding duplicate TrkPt #16 (SampleGpxFiles/WahooElmntBolt.gpx:145) !
+INFO: Discarding duplicate TrkPt #17 (SampleGpxFiles/WahooElmntBolt.gpx:154) !
+INFO: Discarding duplicate TrkPt #18 (SampleGpxFiles/WahooElmntBolt.gpx:163) !
+    numTrkPts: 154
+ numDupTrkPts: 10
 numTrimTrkPts: 0
-   numElevAdj: 119
-         time: 04:41:45
-   movingTime: 04:41:39
-  stoppedTime: 00:00:06
-     distance: 108.6702326136 km
-     elevGain: 601.9189828138 m
-     elevLoss: 587.8633776238 m
-    maxDeltaD: 69.766 m at TrkPt #542 (line #5427) : time = 2615 s, dist = 21.94 km
-    maxDeltaT: 58.000 sec at TrkPt #1198 (line #11987) : time = 5346 s, dist = 40.29 km
-     maxSpeed: 53.1624730132 km/h at TrkPt #822 (line #8227) : time = 3781 s, dist = 30.37 km
-     maxGrade: 550.79% at TrkPt #1772 (line #17727) : time = 7782 s, dist = 49.67 km
-     minGrade: -437.40% at TrkPt #1179 (line #11797) : time = 5156 s, dist = 40.26 km
+numDiscTrkPts: 0
+   numElevAdj: 0
+  dateAndTime: 2022-03-24T02:49:14
+  elapsedTime: 00:02:33
+    totalTime: 00:02:33
+   movingTime: 00:02:33
+  stoppedTime: 00:00:00
+     distance: 0.7779815602 km
+     elevGain: 7.0000000000 m
+     elevLoss: 13.6000000000 m
+    maxDeltaD: 9.070 m at TrkPt #82 (SampleGpxFiles/WahooElmntBolt.gpx:739) : time = 81 s, distance = 0.376 km
+    maxDeltaT: 11.000 sec at TrkPt #19 (SampleGpxFiles/WahooElmntBolt.gpx:172) : time = 18 s, distance = 0.005 km
+     maxSpeed: 32.6514947375 km/h at TrkPt #82 (SampleGpxFiles/WahooElmntBolt.gpx:739) : time = 81 s, distance = 0.376 km, deltaD = 9.070 m, deltaT = 1.000 s
+     maxGrade: 9.88% at TrkPt #62 (SampleGpxFiles/WahooElmntBolt.gpx:559) : time = 61 s, distance = 0.253 km, run = 2.024 m, rise = 0.200 m
+     minGrade: -11.39% at TrkPt #83 (SampleGpxFiles/WahooElmntBolt.gpx:748) : time = 82 s, distance = 0.384 km, run = 8.779 m, rise = -1.000 m
 ```
 
-This ride included a few stops during which the bike was not moving but the Garmin was still recording GPS data. The subtle errors in the GPS data while the bike was stopped cause some track points to have an inconsistent value of distance and elevation.  Running the tool without the --quiet option will show a bunch of these errors:
+The informational messages about the duplicate track points indicate that the bike computer was not moving at the time, hence the identical GPS data for all those points. The tool automatically removes these duplicate track points, as they do not add any useful information to the track.  Informational and warning messages can be disabled by running the tool with the --quiet option:
+
 
 ```
-WARNING: TrkPt at line #2717 has inconsistent distance (0.1909778990) and rise (0.6000022888) values! (speed=0.138 km/h)
-```
-The very low value of the speed (0.138 km/h) is an indication that the bike was actually stopped at that point.  Running the tool with the option --remove-stops *<speed>* will treat as being **stopped** any point where the speed is below *<speed>*.
-
-```
-$ gpxFileTool --remove-stops 0.5 --quiet --summary SampleGpxFiles/Knights_Ferry_GarminEdge520.gpx
-    numTrkPts: 3635
- numDupTrkPts: 0
+$ gpxFileTool --quiet --summary SampleGpxFiles/WahooElmntBolt.gpx
+    numTrkPts: 154
+ numDupTrkPts: 10
 numTrimTrkPts: 0
-   numElevAdj: 2
-         time: 04:19:28
-   movingTime: 03:57:05
-  stoppedTime: 00:22:23
-     distance: 108.6454860948 km
-     elevGain: 583.7220803293 m
-     elevLoss: 587.1999111176 m
-    maxDeltaD: 69.766 m at TrkPt #542 (line #5427) : time = 2615 s, dist = 21.94 km
-    maxDeltaT: 13.000 sec at TrkPt #1641 (line #16417) : time = 7199 s, dist = 48.14 km
-     maxSpeed: 53.1624730132 km/h at TrkPt #822 (line #8227) : time = 3781 s, dist = 30.37 km
-     maxGrade: 218.30% at TrkPt #1690 (line #16907) : time = 7427 s, dist = 48.49 km
-     minGrade: -437.40% at TrkPt #1179 (line #11797) : time = 5156 s, dist = 40.25 km
-```
-Notice how the new stoppedTime value increased from 00:00:06 to 00:22:23.
-
-And notice also the absurd values for the maximum and minimum grades. These bogus values are the result of bad GPS elevation data readings. Running the tool with the option --sma-window 7 will smooth out the grade values using a Simple Moving Average (SMA) algorithm over a range of 7 points; i.e. the point in question plus 3 points before and 3 points after:
-
-```
-$ gpxFileTool --remove-stops 0.5 --sma-window 7 --quiet --summary SampleGpxFiles/Knights_Ferry_GarminEdge520.gpx
-    numTrkPts: 3635
- numDupTrkPts: 0
-numTrimTrkPts: 0
-   numElevAdj: 3474
-         time: 04:19:28
-   movingTime: 03:57:05
-  stoppedTime: 00:22:23
-     distance: 108.6454860948 km
-     elevGain: 617.6527809595 m
-     elevLoss: 468.2622134643 m
-    maxDeltaD: 69.766 m at TrkPt #542 (line #5427) : time = 2615 s, dist = 21.94 km
-    maxDeltaT: 13.000 sec at TrkPt #1641 (line #16417) : time = 7199 s, dist = 48.14 km
-     maxSpeed: 53.1624730132 km/h at TrkPt #822 (line #8227) : time = 3781 s, dist = 30.37 km
-     maxGrade: 49.98% at TrkPt #1690 (line #16907) : time = 7427 s, dist = 48.49 km
-     minGrade: -116.47% at TrkPt #1179 (line #11797) : time = 5156 s, dist = 40.25 km
-```
-
-While the smoothing brought down the max grade from 218.30% to 49.98%, the value is still bogus to the point that no human being would be able to climb a road with such a grade.  Knowing *a priori* the maximum grade of the route, we can use the option --max-grade *<value>* to limit (cap) the maximum grade to this specified value:
-
-```
-$ gpxFileTool --remove-stops 0.5 --sma-window 7 --max-grade 8.0 --quiet --summary SampleGpxFiles/Knights_Ferry_GarminEdge520.gpx
-    numTrkPts: 3635
- numDupTrkPts: 0
-numTrimTrkPts: 0
-   numElevAdj: 3474
-         time: 04:19:28
-   movingTime: 03:57:05
-  stoppedTime: 00:22:23
-     distance: 108.6454860948 km
-     elevGain: 598.4443934391 m
-     elevLoss: 467.3053959259 m
-    maxDeltaD: 69.766 m at TrkPt #542 (line #5427) : time = 2615 s, dist = 21.94 km
-    maxDeltaT: 13.000 sec at TrkPt #1641 (line #16417) : time = 7199 s, dist = 48.14 km
-     maxSpeed: 53.1624730132 km/h at TrkPt #822 (line #8227) : time = 3781 s, dist = 30.37 km
-     maxGrade: 8.00% at TrkPt #1160 (line #11607) : time = 5111 s, dist = 40.18 km
-     minGrade: -116.49% at TrkPt #1179 (line #11797) : time = 5156 s, dist = 40.25 km
+numDiscTrkPts: 0
+   numElevAdj: 0
+  dateAndTime: 2022-03-24T02:49:14
+  elapsedTime: 00:02:33
+    totalTime: 00:02:33
+   movingTime: 00:02:33
+  stoppedTime: 00:00:00
+     distance: 0.7779815602 km
+     elevGain: 7.0000000000 m
+     elevLoss: 13.6000000000 m
+    maxDeltaD: 9.070 m at TrkPt #82 (SampleGpxFiles/WahooElmntBolt.gpx:739) : time = 81 s, distance = 0.376 km
+    maxDeltaT: 11.000 sec at TrkPt #19 (SampleGpxFiles/WahooElmntBolt.gpx:172) : time = 18 s, distance = 0.005 km
+     maxSpeed: 32.6514947375 km/h at TrkPt #82 (SampleGpxFiles/WahooElmntBolt.gpx:739) : time = 81 s, distance = 0.376 km, deltaD = 9.070 m, deltaT = 1.000 s
+     maxGrade: 9.88% at TrkPt #62 (SampleGpxFiles/WahooElmntBolt.gpx:559) : time = 61 s, distance = 0.253 km, run = 2.024 m, rise = 0.200 m
+     minGrade: -11.39% at TrkPt #83 (SampleGpxFiles/WahooElmntBolt.gpx:748) : time = 82 s, distance = 0.384 km, run = 8.779 m, rise = -1.000 m
 ```
 
 #### Example 2
 
-There are situations in which one wants to turn a GPX *route* into a GPX *ride*.  For example, imagine you rode your bike for a couple of hours and at the end of the ride you realize you forgot to start your bike computer. Doh!  In this case you can use a GPX route editor (such as RideWithGPS) to draw the route you rode, and then add timing data to the GPX route to turn it into a ride, so that it can be uploaded to your Strava account to get distance and elevation gain credits for it.  In this example we take a manually created route, and we turn it into a ride using the current date and time as the activity's start time, and an average speed of 12.0 km/h:
+There are situations in which one wants to turn a GPX *route* into a GPX *ride*.  For example, imagine you rode your bike for a couple of hours and at the end of the ride you realize you forgot to start your bike computer. Doh!  In this case you can use a mapping app (such as RideWithGPS) to draw the route you rode, export it as a GPX route file, and then add timing data to the GPX route to turn it into a ride, so that it can be uploaded to your Strava account to get distance and elevation gain credits for it.  In this example we take a manually created route, and we turn it into a ride using the current date and time as the activity's start time, and an average speed of 12.5 km/h:
 
 ```
-$ gpxFileTool --start-time now --set-speed 12.0 SampleGpxFiles/TrailCreekEoP_RWGPS_Route.gpx > TrailCreekEoP_RWGPS_Ride.gpx
-$ 
-$ gpxFileTool --summary TrailCreekEoP_RWGPS_Ride.gpx
-    numTrkPts: 92
+$ gpxFileTool --start-time now --set-speed 12.5 SampleGpxFiles/TrailCreekEoP_RWGPS_Route.gpx > outFiles/TrailCreekEoP_RWGPS_Ride.gpx
+$ gpxFileTool --summary outFiles/TrailCreekEoP_RWGPS_Ride.gpx
+    numTrkPts: 93
  numDupTrkPts: 0
 numTrimTrkPts: 0
+numDiscTrkPts: 0
    numElevAdj: 0
-         time: 00:12:48
-   movingTime: 00:12:48
+  dateAndTime: 2022-03-29T22:50:02
+  elapsedTime: 00:13:05
+    totalTime: 00:13:05
+   movingTime: 00:13:05
   stoppedTime: 00:00:00
-     distance: 2.5610856060 km
-     elevGain: 164.3000000000 m
+     distance: 2.7288970354 km
+     elevGain: 166.9000000000 m
      elevLoss: 2.4000000000 m
-    maxDeltaD: 129.624 m at TrkPt #17 (line #76) : time = 246 s, dist = 0.82 km
-    maxDeltaT: 38.887 sec at TrkPt #17 (line #76) : time = 246 s, dist = 0.82 km
-     maxSpeed: 12.0166019232 km/h at TrkPt #27 (line #116) : time = 301 s, dist = 1.00 km
-     maxGrade: 30.87% at TrkPt #60 (line #248) : time = 503 s, dist = 1.68 km
-     minGrade: -4.23% at TrkPt #38 (line #160) : time = 367 s, dist = 1.22 km
+    maxDeltaD: 156.725 m at TrkPt #2 (outFiles/TrailCreekEoP_RWGPS_Ride.gpx:22) : time = 45 s, distance = 0.157 km
+    maxDeltaT: 45.136 sec at TrkPt #2 (outFiles/TrailCreekEoP_RWGPS_Ride.gpx:22) : time = 45 s, distance = 0.157 km
+     maxSpeed: 12.5126490732 km/h at TrkPt #43 (outFiles/TrailCreekEoP_RWGPS_Ride.gpx:268) : time = 421 s, distance = 1.463 km, deltaD = 2.440 m, deltaT = 0.702 s
+     maxGrade: 29.50% at TrkPt #61 (outFiles/TrailCreekEoP_RWGPS_Ride.gpx:376) : time = 530 s, distance = 1.841 km, run = 23.390 m, rise = 6.900 m
+     minGrade: -4.23% at TrkPt #39 (outFiles/TrailCreekEoP_RWGPS_Ride.gpx:244) : time = 398 s, distance = 1.383 km, run = 2.365 m, rise = -0.100 m
 ```
 
+Notice the high (29.50%) maximum grade value. This is often a by product of poor elevation data in the GPX route file.  This problem can be corrected using the Simple Moving Average (SMA) algorithm, to smooth out the grade values.  Below we use an SMA window size of 5 points, which brings the maximum grade value from 29.50% down to 13.05%.  Notice that the elevation values are adjusted accordingly, leading to a smaller total elevation gain:
+
+```
+$ gpxFileTool --start-time now --set-speed 12.5 --sma-metric grade --sma-window 5 SampleGpxFiles/TrailCreekEoP_RWGPS_Route.gpx > outFiles/TrailCreekEoP_RWGPS_Ride.gpx
+$ gpxFileTool.exe --summary outFiles/TrailCreekEoP_RWGPS_Ride.gpx
+    numTrkPts: 93
+ numDupTrkPts: 0
+numTrimTrkPts: 0
+numDiscTrkPts: 0
+   numElevAdj: 0
+  dateAndTime: 2022-03-30T02:04:29
+  elapsedTime: 00:13:05
+    totalTime: 00:13:05
+   movingTime: 00:13:05
+  stoppedTime: 00:00:00
+     distance: 2.7230794755 km
+     elevGain: 138.4834820467 m
+     elevLoss: 5.6212477973 m
+    maxDeltaD: 156.709 m at TrkPt #2 (outFiles/TrailCreekEoP_RWGPS_Ride.gpx:22) : time = 45 s, distance = 0.157 km
+    maxDeltaT: 45.136 sec at TrkPt #2 (outFiles/TrailCreekEoP_RWGPS_Ride.gpx:22) : time = 45 s, distance = 0.157 km
+     maxSpeed: 12.5491504737 km/h at TrkPt #92 (outFiles/TrailCreekEoP_RWGPS_Ride.gpx:562) : time = 782 s, distance = 2.712 km, deltaD = 8.980 m, deltaT = 2.576 s
+     maxGrade: 13.05% at TrkPt #75 (outFiles/TrailCreekEoP_RWGPS_Ride.gpx:460) : time = 616 s, distance = 2.135 km, run = 14.813 m, rise = 1.934 m
+     minGrade: -8.29% at TrkPt #93 (outFiles/TrailCreekEoP_RWGPS_Ride.gpx:568) : time = 785 s, distance = 2.723 km, run = 11.152 m, rise = -0.924 m
+```
+ 
 #### Example 3
 
 In this example we instruct the tool to generate a Comma-Separated-Value (CSV) output file, so that the file can be loaded into a spreadsheet app (such as Excel or Libre Office Calc) for further analysis and data visualization:
 
 ```
-$ gpxFileTool --output-format csv SampleGpxFiles/Galena_Pass_Northbound.gpx > Galena_Pass_Northbound.csv
+$ gpxFileTool.exe --quiet --output-format csv SampleGpxFiles/WahooElmntBolt.gpx > outFiles/WahooElmntBolt.csv
 ```
 The CSV output file looks like this:
 
 ```
-<line#>,<trkpt>,<time>,<lat>,<lon>,<ele>,<power>,<atemp>,<cadence>,<hr>,<deltaP>,<deltaT>,<deltaE>,run,<distance>,<speed>,<grade>
-29,2,1614133353.000,43.8707494363,-114.6541895997,2227.6000976562,0,23,0,0,0.7728892804,1.000,0.0000000000,0.7728892804,0.0007728893,2.7824014094,0.00
-41,3,1614133354.000,43.8707595784,-114.6541961376,2227.6000976562,0,23,0,0,1.2439280121,1.000,0.0000000000,1.2439280121,0.0020168173,4.4781408435,0.00
-53,4,1614133355.000,43.8707726542,-114.6542047709,2227.6000976562,0,23,0,0,1.6107158407,1.000,0.0000000000,1.6107158407,0.0036275331,5.7985770266,0.00
-65,5,1614133356.000,43.8707880769,-114.6542148292,2227.6000976562,0,23,0,0,1.8955443487,1.000,0.0000000000,1.8955443487,0.0055230775,6.8239596554,0.00
-77,6,1614133357.000,43.8708057627,-114.6542262286,2227.6000976562,0,23,0,0,2.1691166352,1.000,0.0000000000,2.1691166352,0.0076921941,7.8088198866,0.00
-89,7,1614133358.000,43.8708256278,-114.6542388014,2227.6000976562,0,23,0,0,2.4286473881,1.000,0.0000000000,2.4286473881,0.0101208415,8.7431305970,0.00
-101,8,1614133359.000,43.8708472531,-114.6542527154,2227.6000976562,0,23,0,0,2.6514529022,1.000,0.0000000000,2.6514529022,0.0127722944,9.5452304480,0.00
-113,9,1614133360.000,43.8708707225,-114.6542673837,2227.6000976562,0,23,0,0,2.8631396748,1.000,0.0000000000,2.8631396748,0.0156354341,10.3073028294,0.00
+<inFile>,<line#>,<trkpt>,<time>,<lat>,<lon>,<ele>,<power>,<atemp>,<cadence>,<hr>,<deltaT>,<run>,<rise>,<dist>,<distance>,<speed>,<grade>
+SampleGpxFiles/WahooElmntBolt.gpx,19,2,1648090155,43.6259350000,-114.3518540000,1731.4000000000,0,17,0,0,1.0000000000,0.483,0.0000000000,0.4830733702,0.0004830734,1.7390641328,0.00
+SampleGpxFiles/WahooElmntBolt.gpx,28,3,1648090156,43.6259320000,-114.3518520000,1731.4000000000,0,17,0,0,1.0000000000,0.371,0.0000000000,0.3705003177,0.0008535737,1.3338011439,0.00
+SampleGpxFiles/WahooElmntBolt.gpx,37,4,1648090157,43.6259310000,-114.3518520000,1731.4000000000,0,17,0,0,1.0000000000,0.111,0.0000000000,0.1112262997,0.0009648000,0.4004146790,0.00
+SampleGpxFiles/WahooElmntBolt.gpx,46,5,1648090158,43.6259310000,-114.3518470000,1731.4000000000,0,17,0,0,1.0000000000,0.403,0.0000000000,0.4025611677,0.0013673612,1.4492202037,0.00
+SampleGpxFiles/WahooElmntBolt.gpx,55,6,1648090159,43.6259280000,-114.3518450000,1731.4000000000,0,17,0,0,1.0000000000,0.371,0.0000000000,0.3705003224,0.0017378615,1.3338011607,0.00
+SampleGpxFiles/WahooElmntBolt.gpx,64,7,1648090160,43.6259290000,-114.3518450000,1731.4000000000,0,17,0,0,1.0000000000,0.111,0.0000000000,0.1112262997,0.0018490878,0.4004146790,0.00
+SampleGpxFiles/WahooElmntBolt.gpx,73,8,1648090161,43.6259310000,-114.3518450000,1731.4000000000,0,17,0,0,1.0000000000,0.222,0.0000000000,0.2224526002,0.0020715404,0.8008293606,0.00
   .
   .
   .
@@ -300,57 +291,75 @@ And this [screenshot](https://github.com/elfrances/gpxFileTool/blob/main/Images/
 In this example we stitch together two GPX files from the same activity. This is a common situation when, for example, a long out-and-back ride is interrupted at the turn around point (e.g. to stop for lunch) and the GPS device is stopped to save battery.
 
 ```
-$ gpxFileTool --summary SampleGpxFiles/Afternoon_Hike_1of2.gpx 
+$ gpxFileTool.exe --summary SampleGpxFiles/Afternoon_Hike_1of2.gpx
     numTrkPts: 219
  numDupTrkPts: 0
 numTrimTrkPts: 0
+numDiscTrkPts: 0
    numElevAdj: 0
-         time: 00:03:39
+  dateAndTime: 2021-03-29T05:56:45
+  elapsedTime: 00:03:39
+    totalTime: 00:03:39
    movingTime: 00:03:39
   stoppedTime: 00:00:00
-     distance: 0.3066017305 km
+     distance: 0.3066607785 km
      elevGain: 1.1000000000 m
      elevLoss: 0.3000000000 m
-    maxDeltaD: 3.840 m at TrkPt #67 (line #274) : time = 67 s, dist = 0.08 km
-    maxDeltaT: 2.000 sec at TrkPt #2 (line #14) : time = 2 s, dist = 0.00 km
-     maxSpeed: 13.8249573604 km/h at TrkPt #67 (line #274) : time = 67 s, dist = 0.08 km
-     maxGrade: 15.04% at TrkPt #41 (line #170) : time = 41 s, dist = 0.04 km
-     minGrade: -6.98% at TrkPt #121 (line #490) : time = 121 s, dist = 0.16 km
-$ gpxFileTool --summary SampleGpxFiles/Afternoon_Hike_2of2.gpx 
+    maxDeltaD: 3.840 m at TrkPt #67 (SampleGpxFiles/Afternoon_Hike_1of2.gpx:274) : time = 67 s, distance = 0.080 km
+    maxDeltaT: 2.000 sec at TrkPt #2 (SampleGpxFiles/Afternoon_Hike_1of2.gpx:14) : time = 2 s, distance = 0.003 km
+     maxSpeed: 13.8249573587 km/h at TrkPt #67 (SampleGpxFiles/Afternoon_Hike_1of2.gpx:274) : time = 67 s, distance = 0.080 km, deltaD = 3.840 m, deltaT = 1.000 s
+     maxGrade: 14.88% at TrkPt #41 (SampleGpxFiles/Afternoon_Hike_1of2.gpx:170) : time = 41 s, distance = 0.038 km, run = 0.672 m, rise = 0.100 m
+     minGrade: -6.96% at TrkPt #121 (SampleGpxFiles/Afternoon_Hike_1of2.gpx:490) : time = 121 s, distance = 0.161 km, run = 1.437 m, rise = -0.100 m
+
+$ gpxFileTool.exe --summary SampleGpxFiles/Afternoon_Hike_2of2.gpx
     numTrkPts: 200
  numDupTrkPts: 0
 numTrimTrkPts: 0
+numDiscTrkPts: 0
    numElevAdj: 0
-         time: 00:03:21
+  dateAndTime: 2021-03-29T06:02:59
+  elapsedTime: 00:03:21
+    totalTime: 00:03:21
    movingTime: 00:03:21
   stoppedTime: 00:00:00
-     distance: 0.3403108771 km
+     distance: 0.3403461032 km
      elevGain: 0.3000000000 m
      elevLoss: 1.0000000000 m
-    maxDeltaD: 8.628 m at TrkPt #4 (line #22) : time = 4 s, dist = 0.02 km
-    maxDeltaT: 2.000 sec at TrkPt #3 (line #18) : time = 3 s, dist = 0.01 km
-     maxSpeed: 31.0613213108 km/h at TrkPt #4 (line #22) : time = 4 s, dist = 0.02 km
-     maxGrade: 9.54% at TrkPt #15 (line #66) : time = 16 s, dist = 0.04 km
-     minGrade: -8.43% at TrkPt #163 (line #658) : time = 164 s, dist = 0.28 km
-$ gpxFileTool SampleGpxFiles/Afternoon_Hike_1of2.gpx SampleGpxFiles/Afternoon_Hike_2of2.gpx > Afternoon_Hike.gpx
-$ gpxFileTool --summary Afternoon_Hike.gpx
-    numTrkPts: 418
+    maxDeltaD: 8.628 m at TrkPt #4 (SampleGpxFiles/Afternoon_Hike_2of2.gpx:22) : time = 4 s, distance = 0.021 km
+    maxDeltaT: 2.000 sec at TrkPt #3 (SampleGpxFiles/Afternoon_Hike_2of2.gpx:18) : time = 3 s, distance = 0.013 km
+     maxSpeed: 31.0613213089 km/h at TrkPt #4 (SampleGpxFiles/Afternoon_Hike_2of2.gpx:22) : time = 4 s, distance = 0.021 km, deltaD = 8.628 m, deltaT = 1.000 s
+     maxGrade: 9.49% at TrkPt #15 (SampleGpxFiles/Afternoon_Hike_2of2.gpx:66) : time = 16 s, distance = 0.042 km, run = 1.053 m, rise = 0.100 m
+     minGrade: -8.40% at TrkPt #163 (SampleGpxFiles/Afternoon_Hike_2of2.gpx:658) : time = 164 s, distance = 0.284 km, run = 1.190 m, rise = -0.100 m
+
+$ gpxFileTool.exe SampleGpxFiles/Afternoon_Hike_1of2.gpx SampleGpxFiles/Afternoon_Hike_2of2.gpx > outFiles/Afternoon_Hike_Combined.gpx
+$ gpxFileTool.exe --summary outFiles/Afternoon_Hike_Combined.gpx
+    numTrkPts: 419
  numDupTrkPts: 0
 numTrimTrkPts: 0
+numDiscTrkPts: 0
    numElevAdj: 0
-         time: 00:09:33
-   movingTime: 00:09:33
+  dateAndTime: 2021-03-29T12:56:45
+  elapsedTime: 00:09:35
+    totalTime: 00:09:35
+   movingTime: 00:09:35
   stoppedTime: 00:00:00
-     distance: 0.6886085160 km
+     distance: 0.6912234432 km
      elevGain: 1.4000000000 m
      elevLoss: 1.6000000000 m
-    maxDeltaD: 44.216 m at TrkPt #219 (line #884) : time = 372 s, dist = 0.35 km
-    maxDeltaT: 155.000 sec at TrkPt #219 (line #884) : time = 372 s, dist = 0.35 km
-     maxSpeed: 31.0613213108 km/h at TrkPt #222 (line #896) : time = 376 s, dist = 0.37 km
-     maxGrade: 15.04% at TrkPt #40 (line #168) : time = 39 s, dist = 0.04 km
-     minGrade: -8.43% at TrkPt #381 (line #1532) : time = 536 s, dist = 0.63 km
+    maxDeltaD: 44.217 m at TrkPt #220 (outFiles/Afternoon_Hike_Combined.gpx:1330) : time = 374 s, distance = 0.351 km
+    maxDeltaT: 155.000 sec at TrkPt #220 (outFiles/Afternoon_Hike_Combined.gpx:1330) : time = 374 s, distance = 0.351 km
+     maxSpeed: 31.0613213089 km/h at TrkPt #223 (outFiles/Afternoon_Hike_Combined.gpx:1348) : time = 378 s, distance = 0.372 km, deltaD = 8.628 m, deltaT = 1.000 s
+     maxGrade: 14.88% at TrkPt #41 (outFiles/Afternoon_Hike_Combined.gpx:256) : time = 41 s, distance = 0.038 km, run = 0.672 m, rise = 0.100 m
+     minGrade: -8.40% at TrkPt #382 (outFiles/Afternoon_Hike_Combined.gpx:2302) : time = 538 s, distance = 0.635 km, run = 1.190 m, rise = -0.100 m
 ```
-     
+
+#### Example 5
+
+In this example we process a GPX file, removing the cadence, heart rate, and power metrics, and create a new TCX file:
+
+```
+$ gpxFileTool.exe --quiet --output-filter 0x0f --output-format tcx SampleGpxFiles/FulGaz_Col_de_la_Madone.gpx > outFiles/FulGaz_Col_de_la_Madone.tcx
+```     
 
 
 
