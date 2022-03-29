@@ -189,9 +189,7 @@ typedef struct CmdArgs {
     ActType actType;    // activity type for the output file
     int closeGap;       // close the time gap at the specified track point
     double maxGrade;    // max grade allowed (in %)
-    int maxTimeGap;     // max time gap between points (in sec)
     double minGrade;    // min grade allowed (in %)
-    double minSpeed;    // min speed below which we assume we are stopped
     const char *name;   // <name> tag
     FILE *outFile;      // output file
     OutFmt outFmt;      // format of the output data (csv, gpx)
@@ -230,7 +228,7 @@ static const char *help =
         "SYNTAX:\n"
         "    gpxFileTool [OPTIONS] <file> [<file2> ...]\n"
         "\n"
-        "    When multiple input files are specified, the tool will attempt to\""
+        "    When multiple input files are specified, the tool will attempt to\n"
         "    stitch them together into a single output file.\n"
         "\n"
         "OPTIONS:\n"
@@ -244,8 +242,6 @@ static const char *help =
         "    --max-grade <value>\n"
         "        Limit the maximum grade to the specified value. The elevation\n"
         "        values are adjusted accordingly.\n"
-        "    --max-time-gap <value>\n"
-        "        Limit the maximum time gap between points to the specified value.\n"
         "    --min-grade <value>\n"
         "        Limit the minimum grade to the specified value. The elevation\n"
         "        values are adjusted accordingly.\n"
@@ -270,13 +266,9 @@ static const char *help =
         "    --range <a,b>\n"
         "        Limit the track points to be processed to the range between point\n"
         "        'a' and point 'b', inclusive.\n"
-        "    --rel-time {seconds|hhmmss}\n"
+        "    --rel-time {sec|hms}\n"
         "        Use relative timestamps in the CSV output, using the specified\n"
         "        format.\n"
-        "    --remove-stops <min-speed>\n"
-        "        Remove any points with a speed below the specified minimum\n"
-        "        speed (in km/h), assuming that bike was stopped at the time\n"
-        "        and the low speed value was a product of bogus GPS data."
         "    --set-speed <avg-speed>\n"
         "        Use the specified average speed value (in km/h) to generate missing\n"
         "        timestamps, or to replace the existing timestamps, in the input file.\n"
@@ -358,12 +350,6 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
                 invalidArgument(arg, val);
                 return -1;
             }
-        } else if (strcmp(arg, "--max-time-gap") == 0) {
-            val = argv[++n];
-            if (sscanf(val, "%d", &pArgs->maxTimeGap) != 1) {
-                invalidArgument(arg, val);
-                return -1;
-            }
         } else if (strcmp(arg, "--min-grade") == 0) {
             val = argv[++n];
             if (sscanf(val, "%le", &pArgs->minGrade) != 1) {
@@ -414,12 +400,6 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
             }
             if ((pArgs->rangeFrom < 1) || (pArgs->rangeFrom >= pArgs->rangeTo)) {
                 fprintf(stderr, "Invalid TrkPt range %d,%d\n", pArgs->rangeFrom, pArgs->rangeTo);
-                return -1;
-            }
-        } else if (strcmp(arg, "--remove-stops") == 0) {
-            val = argv[++n];
-            if (sscanf(val, "%le", &pArgs->minSpeed) != 1) {
-                invalidArgument(arg, val);
                 return -1;
             }
         } else if (strcmp(arg, "--rel-time") == 0) {
@@ -1148,7 +1128,7 @@ static int checkTrkPts(GpsTrk *pTrk, CmdArgs *pArgs)
             }
 
             // Timestamps should increase monotonically
-            if (p2->timestamp <= p1->timestamp) {
+            if ((p2->timestamp != 0.0) && (p2->timestamp <= p1->timestamp)) {
                 if (!pArgs->quiet) {
                     fprintf(stderr, "INFO: TrkPt #%d (%s) has a non-increasing timestamp from the previous point at line #%u !\n",
                             p2->index, fmtTrkPtIdx(p2), p1->lineNum);
@@ -1406,18 +1386,27 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
             pTrk->maxDeltaDTrkPt = p2;
         }
 
+        // If needed, compute the time interval based on the
+        // distance and the specified average speed.
+        if (p2->timestamp == 0.0) {
+            p2->deltaT = p2->dist / pArgs->setSpeed;
+            p2->timestamp = p1->timestamp + p2->deltaT;
+        }
+
         // Compute the time interval between the two points.
         // Typically fixed at 1-sec, but some GPS devices (e.g.
         // Garmin Edge) may use a "smart" recording mode that
         // can have several seconds between points, while
         // other devices (e.g. GoPro Hero) may record multiple
-        // points each second...
+        // points each second. And when converting a GPX route
+        // into a GPX ride, the time interval is arbitrary,
+        // computed from the distance and the speed.
         p2->deltaT = (p2->timestamp - p1->timestamp);
 
         // Paranoia?
         if (p2->deltaT <= 0.0) {
-            fprintf(stderr, "SPONG! TrkPt #%u (%s) has a non-increasing timestamp !\n",
-                    p2->index, fmtTrkPtIdx(p2));
+            fprintf(stderr, "SPONG! TrkPt #%u (%s) has a non-increasing timestamp ! dist=%.10lf deltaT=%.3lf\n",
+                    p2->index, fmtTrkPtIdx(p2), p2->dist, p2->deltaT);
             dumpTrkPts(pTrk, p2, 2, 0);
         }
 
@@ -1432,23 +1421,21 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
             p2->speed = p2->dist / p2->deltaT;
         }
 
-        // Update the max speed value
-        if (p2->speed > pTrk->maxSpeed) {
-             pTrk->maxSpeed = p2->speed;
-             pTrk->maxSpeedTrkPt = p2;
-        }
-
         // Update the total distance for the activity
         pTrk->distance += p2->dist;
 
         // Update the total time for the activity
         pTrk->time += p2->deltaT;
 
-        // Compute the grade as "rise over run"
+        // Compute the grade as "rise over run". Notice
+        // that the grade value may get updated later...
         p2->grade = (p2->rise * 100.0) / p2->run;   // in [%]
 
         // Compute the bearing
         p2->bearing = compBearing(p1, p2);
+
+        // Update the activity's end time
+        pTrk->endTime = p2->timestamp;
 
         p1 = p2;
         p2 = TAILQ_NEXT(p2, tqEntry);
@@ -1471,33 +1458,29 @@ static double smaGetVal(TrkPt *p, SmaMetric smaMetric)
 static double smaSetVal(TrkPt *p, SmaMetric smaMetric, double value)
 {
     if (smaMetric == elevation) {
-        return p->elevation = value;
+        p->elevation = value;
     } else if (smaMetric == grade) {
-        return p->grade = value;
+        p->grade = value;
     } else {
-        return p->power = (int) value;
+        p->power = (int) value;
     }
+
+    return value;
 }
 
 // Compute the Simple Moving Average (SMA) of the specified
-// value on the given point. The SMA uses a window size of N
+// metric at the given point. The SMA uses a window size of N
 // points, where N is an odd value. The average is computed
-// using the (N-1)/2 values before the point, the value of the
-// point, and the (N-1)/2 values after the point. Notice that
-// for the first few points and for the last few points in the
-// track, the SMA is computed over fewer than N points.
-//
-//   <-- (N-1)/2 --> <-- (N-1)/2 -->
-//   +--------------+---------------+
-//                  p
-//
+// using the (N-1) values before the point, and the value of
+// the given point.
 static void compSma(GpsTrk *pTrk, TrkPt *p, SmaMetric smaMetric, int smaWindow)
 {
     int i;
-    int n = (smaWindow - 1) / 2;
+    int n = (smaWindow - 1);
     int numPoints = 0;
     double summ = 0.0;
-    double sma;
+    double value = smaGetVal(p, smaMetric);
+    double smaVal;
     TrkPt *tp;
 
     // Points before the given point
@@ -1507,23 +1490,22 @@ static void compSma(GpsTrk *pTrk, TrkPt *p, SmaMetric smaMetric, int smaWindow)
     }
 
     // The given point
-    summ += smaGetVal(p, smaMetric);
+    summ += value;
     numPoints++;
 
-    // Points after the given point
-    for (i = 0, tp = TAILQ_NEXT(p, tqEntry); (i < n) && (tp != NULL); i++, tp = TAILQ_NEXT(tp, tqEntry)) {
-        summ += smaGetVal(tp, smaMetric);
-        numPoints++;
-    }
-
     // SMA value
-    sma = summ / numPoints;
+    smaVal = summ / numPoints;
 
-    //printf("%s: index=%d metric=%d before=%.3lf summ=%.3lf pts=%d after=%.3lf\n", __func__, p->index, smaMetric, smaGetVal(p, smaMetric), summ, numPoints, sma);
+    //fprintf(stderr, "%s: index=%d metric=%d before=%.3lf summ=%.3lf pts=%d after=%.3lf\n", __func__, p->index, smaMetric, value, summ, numPoints, smaVal);
 
     // Override the original value with the
     // computed SMA value.
-    smaSetVal(p, smaMetric, sma);
+    smaSetVal(p, smaMetric, smaVal);
+
+    if ((smaMetric == grade) && (smaVal != value)) {
+        // Flag that this point had its grade adjusted
+        p->adjGrade = true;
+    }
 }
 
 static Bool pointWithinRange(const CmdArgs *pArgs, const TrkPt *p)
@@ -1609,6 +1591,28 @@ static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
             pTrk->elevGain += p2->rise;
         } else {
             pTrk->elevLoss += fabs(p2->rise);
+        }
+
+        p1 = p2;
+        p2 = TAILQ_NEXT(p2, tqEntry);
+    }
+
+    return 0;
+}
+
+static int compDataPhase3(GpsTrk *pTrk, CmdArgs *pArgs)
+{
+    TrkPt *p1 = TAILQ_FIRST(&pTrk->trkPtList);  // previous TrkPt
+    TrkPt *p2 = TAILQ_NEXT(p1, tqEntry);    // current TrkPt
+
+    pTrk->minGrade = 99.9;
+    pTrk->maxGrade = -99.9;
+
+    while (p2 != NULL) {
+        // Update the max speed value
+        if (p2->speed > pTrk->maxSpeed) {
+             pTrk->maxSpeed = p2->speed;
+             pTrk->maxSpeedTrkPt = p2;
         }
 
         // Update the min/max values
@@ -2037,7 +2041,7 @@ int main(int argc, char **argv)
 
     // Done parsing all the input files. Make sure we have
     // at least one TrkPt!
-    if (TAILQ_FIRST(&gpsTrk.trkPtList) == NULL) {
+    if ((pTrkPt = TAILQ_FIRST(&gpsTrk.trkPtList)) == NULL) {
         // Hu?
         fprintf(stderr, "No track points found!\n");
         return -1;
@@ -2050,41 +2054,35 @@ int main(int argc, char **argv)
     }
 
     // The first point is used a the reference point...
-    if ((pTrkPt = TAILQ_FIRST(&gpsTrk.trkPtList)) != NULL) {
-        // Get the activity's start time
-        gpsTrk.startTime = pTrkPt->timestamp;
-
-        if (pTrkPt->timestamp == 0.0) {
-            // TrkPt has no time information, likely because this
-            // is a GPX/TCX route, and not an actual GPX/TCX ride.
-            // In this case we need to have a start time and a set
-            // speed defined, in order to be able to calculate the
-            // timestamps that turn the route into a ride.
-            if ((cmdArgs.startTime == 0) || (cmdArgs.setSpeed == 0.0)) {
-                fprintf(stderr, "TrkPt %s is missing time information and no startTime or setSpeed has been specified to turn a route into an activity!\n",
-                        fmtTrkPtIdx(pTrkPt));
-                return -1;
-            }
-
-            // Set the timestamp of the first point to the desired
-            // start time of the ride (activity).
-            pTrkPt->timestamp = cmdArgs.startTime;
-        } else if (cmdArgs.startTime != 0) {
-            // We are changing the start date/time of the activity
-            // so set the time offset used to adjust the timestamp
-            // of each point accordingly.
-            gpsTrk.timeOffset = cmdArgs.startTime - pTrkPt->timestamp;
+    if (pTrkPt->timestamp == 0.0) {
+        // TrkPt has no time information, likely because this
+        // is a GPX/TCX route, and not an actual GPX/TCX ride.
+        // In this case we need to have a start time and a set
+        // speed defined, in order to be able to calculate the
+        // timestamps that turn the route into a ride.
+        if ((cmdArgs.startTime == 0) || (cmdArgs.setSpeed == 0.0)) {
+            fprintf(stderr, "TrkPt #%d (%s) is missing time information and no startTime or setSpeed has been specified to turn a route into an activity!\n",
+                    pTrkPt->index, fmtTrkPtIdx(pTrkPt));
+            return -1;
         }
 
-        // If necessary, set the base time reference used to
-        // generate relative timestamps in the CSV output data.
-        if (cmdArgs.relTime) {
-            gpsTrk.baseTime = pTrkPt->timestamp;
-        }
+        // Set the timestamp of the first point to the desired
+        // start time of the ride (activity).
+        pTrkPt->timestamp = cmdArgs.startTime;
+    } else if (cmdArgs.startTime != 0) {
+        // We are changing the start date/time of the activity
+        // so set the time offset used to adjust the timestamp
+        // of each point accordingly.
+        gpsTrk.timeOffset = cmdArgs.startTime - pTrkPt->timestamp;
+    }
 
-        // Get the activity's end time
-        pTrkPt = TAILQ_LAST(&gpsTrk.trkPtList, TrkPtList);
-        gpsTrk.endTime = pTrkPt->timestamp;
+    // Set the activity's start time
+    gpsTrk.startTime = pTrkPt->timestamp;
+
+    // If necessary, set the base time reference used to
+    // generate relative timestamps in the CSV output data.
+    if (cmdArgs.relTime) {
+        gpsTrk.baseTime = pTrkPt->timestamp;
     }
 
     // At this point gpsTrk.trkPtList contains all the track
@@ -2104,6 +2102,9 @@ int main(int argc, char **argv)
 
     // Do necessary adjustments
     compDataPhase2(&gpsTrk, &cmdArgs);
+
+    // Compute min/max values
+    compDataPhase3(&gpsTrk, &cmdArgs);
 
     // Generate the output data
     printOutput(&gpsTrk, &cmdArgs);
