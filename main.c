@@ -1890,7 +1890,7 @@ static void printShizFmt(GpsTrk *pTrk, CmdArgs *pArgs)
         // while all the other ones are printed on separate
         // lines...
         fprintf(pArgs->outFile, "{\"-lon\":\"%.7lf\",\"-lat\":\"%.7lf\",\"speed\":\"%.1lf\",\"ele\":\"%.3lf\",\"distance\":\"%.5lf\",\"bearing\":\"%.2lf\",\"slope\":\"%.1lf\",\"time\":\"%s\",\"index\":%u,\"cadence\":%u,\"p\":%u}%s",
-                p->longitude, p->latitude, p->speed, p->elevation, p->distance, p->bearing, p->grade, fmtTimeStamp((p->timestamp - baseTime), hms), index, p->cadence, 0, (TAILQ_NEXT(p, tqEntry) != NULL) ? ",\n" : "");
+                p->longitude, p->latitude, (p->speed * 3.6), p->elevation, (p->distance / 1000.0), p->bearing, p->grade, fmtTimeStamp((p->timestamp - baseTime), hms), index, p->cadence, 0, (TAILQ_NEXT(p, tqEntry) != NULL) ? ",\n" : "");
     }
 
     fprintf(pArgs->outFile, "]}},\"seg\":[]}}\n");
