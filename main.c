@@ -1502,9 +1502,16 @@ static void compSma(GpsTrk *pTrk, TrkPt *p, SmaMetric smaMetric, int smaWindow)
     // computed SMA value.
     smaSetVal(p, smaMetric, smaVal);
 
-    if ((smaMetric == grade) && (smaVal != value)) {
-        // Flag that this point had its grade adjusted
-        p->adjGrade = true;
+    if (smaVal != value) {
+        if (smaMetric == elevation) {
+            // Recompute the grade using the adjusted
+            // elevation value.
+            p->rise = p->elevation - TAILQ_PREV(p, TrkPtList, tqEntry)->elevation;
+            p->grade = (p->rise * 100.0) / p->run;  // in [%]
+        } else if (smaMetric == grade) {
+            // Flag that this point had its grade adjusted
+            p->adjGrade = true;
+        }
     }
 }
 
@@ -1772,6 +1779,7 @@ static void printGpxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
     time_t now;
     struct tm brkDwnTime = {0};
     char timeBuf[128];
+    TrkPt *p;
 
     // Print headers
     fprintf(pArgs->outFile, "%s", xmlHeader);
@@ -1797,46 +1805,44 @@ static void printGpxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
 
     // Print track segment
     fprintf(pArgs->outFile, "    <trkseg>\n");
-    {
-        TrkPt *p;
 
-        // Print all the track points
-        TAILQ_FOREACH(p, &pTrk->trkPtList, tqEntry) {
-            double timeStamp = (p->adjTime != 0.0) ? p->adjTime : p->timestamp;    // use the adjusted timestamp if there is one
-            time_t time;
-            int ms = 0;
+    // Print all the track points
+    TAILQ_FOREACH(p, &pTrk->trkPtList, tqEntry) {
+        double timeStamp = (p->adjTime != 0.0) ? p->adjTime : p->timestamp;    // use the adjusted timestamp if there is one
+        time_t time;
+        int ms = 0;
 
-            timeStamp += pTrk->timeOffset;
-            time = (time_t) timeStamp;  // sec only
-            ms = (timeStamp - (double) time) * 1000.0;  // milliseconds
-            strftime(timeBuf, sizeof (timeBuf), "%Y-%m-%dT%H:%M:%S", gmtime_r(&time, &brkDwnTime));
-            fprintf(pArgs->outFile, "      <trkpt lat=\"%.10lf\" lon=\"%.10lf\">\n", p->latitude, p->longitude);
-            fprintf(pArgs->outFile, "        <ele>%.10lf</ele>\n", p->elevation);
-            fprintf(pArgs->outFile, "        <time>%s.%03dZ</time>\n", timeBuf, ms);
-            if (pArgs->outMask != SD_NONE) {
-                fprintf(pArgs->outFile, "        <extensions>\n");
-                if ((pTrk->inMask & SD_POWER) && (pArgs->outMask & SD_POWER)) {
-                    fprintf(pArgs->outFile, "          <power>%d</power>\n", p->power);
-                }
-                if ((pTrk->inMask & (SD_ATEMP | SD_CADENCE | SD_HR)) && (pArgs->outMask & (SD_ATEMP | SD_CADENCE | SD_HR))) {
-                    fprintf(pArgs->outFile, "          <gpxtpx:TrackPointExtension>\n");
-                    if ((pTrk->inMask & SD_ATEMP) && (pArgs->outMask & SD_ATEMP)) {
-                        fprintf(pArgs->outFile, "            <gpxtpx:atemp>%d</gpxtpx:atemp>\n", p->ambTemp);
-                    }
-                    if ((pTrk->inMask & SD_HR) && (pArgs->outMask & SD_HR)) {
-                        fprintf(pArgs->outFile, "            <gpxtpx:hr>%d</gpxtpx:hr>\n", p->heartRate);
-                    }
-                    if ((pTrk->inMask & SD_CADENCE) && (pArgs->outMask & SD_CADENCE)) {
-                        fprintf(pArgs->outFile, "            <gpxtpx:cad>%d</gpxtpx:cad>\n", p->cadence);
-                    }
-                    fprintf(pArgs->outFile, "          </gpxtpx:TrackPointExtension>\n");
-                }
-                fprintf(pArgs->outFile, "        </extensions>\n");
+        timeStamp += pTrk->timeOffset;
+        time = (time_t) timeStamp;  // sec only
+        ms = (timeStamp - (double) time) * 1000.0;  // milliseconds
+        strftime(timeBuf, sizeof (timeBuf), "%Y-%m-%dT%H:%M:%S", gmtime_r(&time, &brkDwnTime));
+        fprintf(pArgs->outFile, "      <trkpt lat=\"%.10lf\" lon=\"%.10lf\">\n", p->latitude, p->longitude);
+        fprintf(pArgs->outFile, "        <ele>%.10lf</ele>\n", p->elevation);
+        fprintf(pArgs->outFile, "        <time>%s.%03dZ</time>\n", timeBuf, ms);
+        if (pArgs->outMask != SD_NONE) {
+            fprintf(pArgs->outFile, "        <extensions>\n");
+            if ((pTrk->inMask & SD_POWER) && (pArgs->outMask & SD_POWER)) {
+                fprintf(pArgs->outFile, "          <power>%d</power>\n", p->power);
             }
-
-            fprintf(pArgs->outFile, "      </trkpt>\n");
+            if ((pTrk->inMask & (SD_ATEMP | SD_CADENCE | SD_HR)) && (pArgs->outMask & (SD_ATEMP | SD_CADENCE | SD_HR))) {
+                fprintf(pArgs->outFile, "          <gpxtpx:TrackPointExtension>\n");
+                if ((pTrk->inMask & SD_ATEMP) && (pArgs->outMask & SD_ATEMP)) {
+                    fprintf(pArgs->outFile, "            <gpxtpx:atemp>%d</gpxtpx:atemp>\n", p->ambTemp);
+                }
+                if ((pTrk->inMask & SD_HR) && (pArgs->outMask & SD_HR)) {
+                    fprintf(pArgs->outFile, "            <gpxtpx:hr>%d</gpxtpx:hr>\n", p->heartRate);
+                }
+                if ((pTrk->inMask & SD_CADENCE) && (pArgs->outMask & SD_CADENCE)) {
+                    fprintf(pArgs->outFile, "            <gpxtpx:cad>%d</gpxtpx:cad>\n", p->cadence);
+                }
+                fprintf(pArgs->outFile, "          </gpxtpx:TrackPointExtension>\n");
+            }
+            fprintf(pArgs->outFile, "        </extensions>\n");
         }
+
+        fprintf(pArgs->outFile, "      </trkpt>\n");
     }
+
     fprintf(pArgs->outFile, "    </trkseg>\n");
 
     fprintf(pArgs->outFile, "  </trk>\n");
@@ -1868,7 +1874,7 @@ static const char *tcxActType(GpsTrk *pTrk, CmdArgs *pArgs)
     return actTypeTbl[type];
 }
 
-// Format the data according to the FulGaz format
+// Format the data according to the FulGaz ".shiz" format
 static void printShizFmt(GpsTrk *pTrk, CmdArgs *pArgs)
 {
     time_t now;
@@ -1905,6 +1911,7 @@ static void printTcxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
     time_t now;
     struct tm brkDwnTime = {0};
     char timeBuf[128];
+    TrkPt *p;
 
     // Print headers
     fprintf(pArgs->outFile, "%s", xmlHeader);
@@ -1922,56 +1929,54 @@ static void printTcxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
     fprintf(pArgs->outFile, "        <DistanceMeters>%.10lf</DistanceMeters>\n", pTrk->distance);
     fprintf(pArgs->outFile, "        <MaximumSpeed>%.10lf</MaximumSpeed>\n", pTrk->maxSpeed);
     fprintf(pArgs->outFile, "        <Track>\n");
-    {
-        TrkPt *p;
 
-        // Print all the track points
-        TAILQ_FOREACH(p, &pTrk->trkPtList, tqEntry) {
-            double timeStamp = (p->adjTime != 0.0) ? p->adjTime : p->timestamp;    // use the adjusted timestamp if there is one
-            time_t time;
-            int ms = 0;
+    // Print all the track points
+    TAILQ_FOREACH(p, &pTrk->trkPtList, tqEntry) {
+        double timeStamp = (p->adjTime != 0.0) ? p->adjTime : p->timestamp;    // use the adjusted timestamp if there is one
+        time_t time;
+        int ms = 0;
 
-            timeStamp += pTrk->timeOffset;
-            time = (time_t) timeStamp;  // sec only
-            ms = (timeStamp - (double) time) * 1000.0;  // milliseconds
-            strftime(timeBuf, sizeof (timeBuf), "%Y-%m-%dT%H:%M:%S", gmtime_r(&time, &brkDwnTime));
+        timeStamp += pTrk->timeOffset;
+        time = (time_t) timeStamp;  // sec only
+        ms = (timeStamp - (double) time) * 1000.0;  // milliseconds
+        strftime(timeBuf, sizeof (timeBuf), "%Y-%m-%dT%H:%M:%S", gmtime_r(&time, &brkDwnTime));
 
-            fprintf(pArgs->outFile, "          <Trackpoint>\n");
-            fprintf(pArgs->outFile, "            <Time>%s.%03dZ</Time>\n", timeBuf, ms);
-            fprintf(pArgs->outFile, "            <Position>\n");
-            fprintf(pArgs->outFile, "              <LatitudeDegrees>%.10lf</LatitudeDegrees>\n", p->latitude);
-            fprintf(pArgs->outFile, "              <LongitudeDegrees>%.10lf</LongitudeDegrees>\n", p->longitude);
-            fprintf(pArgs->outFile, "            </Position>\n");
-            fprintf(pArgs->outFile, "            <AltitudeMeters>%.10lf</AltitudeMeters>\n", p->elevation);
-            fprintf(pArgs->outFile, "            <DistanceMeters>%.10lf</DistanceMeters>\n", p->distance);
-            if ((pTrk->inMask & SD_HR) && (pArgs->outMask & SD_HR)) {
-                fprintf(pArgs->outFile, "            <HeartRateBpm>\n");
-                fprintf(pArgs->outFile, "              <Value>%d</Value>\n", p->heartRate);
-                fprintf(pArgs->outFile, "            </HeartRateBpm>\n");
-            }
-            if ((pTrk->inMask & SD_CADENCE) && (pArgs->outMask & SD_CADENCE)) {
-                fprintf(pArgs->outFile, "            <Cadence>%d</Cadence>\n", p->cadence);
-            }
-            fprintf(pArgs->outFile, "            <Extensions>\n");
-#if 0
-            fprintf(pArgs->outFile, "              <TPX xmlns=\"http://www.garmin.com/xmlschemas/ActivityExtension/v2\">\n");
-            fprintf(pArgs->outFile, "                <Speed>%.10lf</Speed>\n", p->speed);
-            if ((pTrk->inMask & SD_POWER) && (pArgs->outMask & SD_POWER)) {
-                fprintf(pArgs->outFile, "                <Watts>%d</Watts>\n", p->power);
-            }
-            fprintf(pArgs->outFile, "              </TPX>\n");
-#else
-            fprintf(pArgs->outFile, "              <ns3:TPX>\n");
-            fprintf(pArgs->outFile, "                <ns3:Speed>%.10lf</ns3:Speed>\n", p->speed);
-            if ((pTrk->inMask & SD_POWER) && (pArgs->outMask & SD_POWER)) {
-                fprintf(pArgs->outFile, "                <ns3:Watts>%d</ns3:Watts>\n", p->power);
-            }
-            fprintf(pArgs->outFile, "              </ns3:TPX>\n");
-#endif
-            fprintf(pArgs->outFile, "            </Extensions>\n");
-            fprintf(pArgs->outFile, "          </Trackpoint>\n");
+        fprintf(pArgs->outFile, "          <Trackpoint>\n");
+        fprintf(pArgs->outFile, "            <Time>%s.%03dZ</Time>\n", timeBuf, ms);
+        fprintf(pArgs->outFile, "            <Position>\n");
+        fprintf(pArgs->outFile, "              <LatitudeDegrees>%.10lf</LatitudeDegrees>\n", p->latitude);
+        fprintf(pArgs->outFile, "              <LongitudeDegrees>%.10lf</LongitudeDegrees>\n", p->longitude);
+        fprintf(pArgs->outFile, "            </Position>\n");
+        fprintf(pArgs->outFile, "            <AltitudeMeters>%.10lf</AltitudeMeters>\n", p->elevation);
+        fprintf(pArgs->outFile, "            <DistanceMeters>%.10lf</DistanceMeters>\n", p->distance);
+        if ((pTrk->inMask & SD_HR) && (pArgs->outMask & SD_HR)) {
+            fprintf(pArgs->outFile, "            <HeartRateBpm>\n");
+            fprintf(pArgs->outFile, "              <Value>%d</Value>\n", p->heartRate);
+            fprintf(pArgs->outFile, "            </HeartRateBpm>\n");
         }
+        if ((pTrk->inMask & SD_CADENCE) && (pArgs->outMask & SD_CADENCE)) {
+            fprintf(pArgs->outFile, "            <Cadence>%d</Cadence>\n", p->cadence);
+        }
+        fprintf(pArgs->outFile, "            <Extensions>\n");
+#if 0
+        fprintf(pArgs->outFile, "              <TPX xmlns=\"http://www.garmin.com/xmlschemas/ActivityExtension/v2\">\n");
+        fprintf(pArgs->outFile, "                <Speed>%.10lf</Speed>\n", p->speed);
+        if ((pTrk->inMask & SD_POWER) && (pArgs->outMask & SD_POWER)) {
+            fprintf(pArgs->outFile, "                <Watts>%d</Watts>\n", p->power);
+        }
+        fprintf(pArgs->outFile, "              </TPX>\n");
+#else
+        fprintf(pArgs->outFile, "              <ns3:TPX>\n");
+        fprintf(pArgs->outFile, "                <ns3:Speed>%.10lf</ns3:Speed>\n", p->speed);
+        if ((pTrk->inMask & SD_POWER) && (pArgs->outMask & SD_POWER)) {
+            fprintf(pArgs->outFile, "                <ns3:Watts>%d</ns3:Watts>\n", p->power);
+        }
+        fprintf(pArgs->outFile, "              </ns3:TPX>\n");
+#endif
+        fprintf(pArgs->outFile, "            </Extensions>\n");
+        fprintf(pArgs->outFile, "          </Trackpoint>\n");
     }
+
     fprintf(pArgs->outFile, "        </Track>\n");
     fprintf(pArgs->outFile, "      </Lap>\n");
     fprintf(pArgs->outFile, "    </Activity>\n");

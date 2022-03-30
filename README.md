@@ -260,6 +260,8 @@ numDiscTrkPts: 0
      maxGrade: 13.05% at TrkPt #75 (outFiles/TrailCreekEoP_RWGPS_Ride.gpx:460) : time = 616 s, distance = 2.135 km, run = 14.813 m, rise = 1.934 m
      minGrade: -8.29% at TrkPt #93 (outFiles/TrailCreekEoP_RWGPS_Ride.gpx:568) : time = 785 s, distance = 2.723 km, run = 11.152 m, rise = -0.924 m
 ```
+
+To illustrate the effect of using SMA to smooth out the grade, this [graph](https://drive.google.com/file/d/1mO2znGdoVMxzFP7lKB38qx0DUh0HjbTz/view?usp=sharing) shows the raw grade vs. distance, while this [graph](https://drive.google.com/file/d/1agbOHJj0NnI7V62d2hJ7eSB7YxlL2vh9/view?usp=sharing) shows the SMA-smoothed grade using a 3-point window size, and this [graph](https://drive.google.com/file/d/1scB6h1AuwlS4s2fgIpchnZBQqWdEoWgS/view?usp=sharing) using a 5-point window size. 
  
 #### Example 3
 
@@ -284,7 +286,7 @@ SampleGpxFiles/WahooElmntBolt.gpx,73,8,1648090161,43.6259310000,-114.3518450000,
   .
 ```
 
-And this [screenshot](https://github.com/elfrances/gpxFileTool/blob/main/Images/Image-1.png) shows the graph of elevation vs. distance for this ride, created from the CSV file using LibreOffice Calc.
+And this [screenshot](https://drive.google.com/file/d/1w4DPMP_rp_gmzHq6_NTPFvKDd1gI3FT1/view?usp=sharing) shows the graph of elevation and speed vs. distance for this ride, created from the CSV file using the LibreOffice Calc app.
 
 #### Example 4
 
