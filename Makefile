@@ -19,7 +19,7 @@ BIN_DIR = .
 DEP_DIR = .
 OBJ_DIR = .
 
-CFLAGS = -D_GNU_SOURCE -I. -ggdb -Wall -Werror -O3
+CFLAGS = -m64 -D_GNU_SOURCE -I. -ggdb -Wall -Werror -O3
 LDFLAGS = -ggdb 
 
 SOURCES = $(wildcard *.c)
@@ -40,11 +40,7 @@ $(OBJ_DIR)/%.o: %.c
 all: gpxFileTool
 
 gpxFileTool: $(OBJECTS) Makefile
-	$(RM) build_info.c
-	$(SHELL) -ec 'echo "const char *buildInfo = \"built on `date` by `whoami`@`hostname`\";" >> build_info.c'
-	$(CC) $(CFLAGS) -o $(OBJ_DIR)/build_info.o -c build_info.c
-	$(RM) build_info.c
-	$(CC) $(LDFLAGS) -o $(BIN_DIR)/$@ $(OBJECTS) $(OBJ_DIR)/build_info.o -lm
+	$(CC) $(LDFLAGS) -o $(BIN_DIR)/$@ $(OBJECTS) -lm
 
 clean:
 	$(RM) $(OBJECTS) $(OBJ_DIR)/build_info.o $(DEP_DIR)/*.d $(BIN_DIR)/gpxFileTool

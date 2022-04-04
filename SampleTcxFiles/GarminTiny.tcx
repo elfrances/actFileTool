@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase
+  xsi:schemaLocation="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd"
+  xmlns:ns5="http://www.garmin.com/xmlschemas/ActivityGoals/v1"
+  xmlns:ns3="http://www.garmin.com/xmlschemas/ActivityExtension/v2"
+  xmlns:ns2="http://www.garmin.com/xmlschemas/UserProfile/v2"
+  xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ns4="http://www.garmin.com/xmlschemas/ProfileExtension/v1">
+  <Activities>
+    <Activity Sport="Biking">
+      <Lap StartTime="2022-03-23T16:55:38.000Z">
+        <Track>
+          <Trackpoint>
+            <Time>2022-03-23T16:55:38.000Z</Time>
+            <Position>
+              <LatitudeDegrees>43.6259026452899</LatitudeDegrees>
+              <LongitudeDegrees>-114.35196147300303</LongitudeDegrees>
+            </Position>
+            <AltitudeMeters>1711.5999755859375</AltitudeMeters>
+            <DistanceMeters>0.0</DistanceMeters>
+            <Extensions>
+              <ns3:TPX>
+                <ns3:Speed>0.0</ns3:Speed>
+              </ns3:TPX>
+            </Extensions>
+          </Trackpoint>
+          <Trackpoint>
+            <Time>2022-03-23T16:56:05.000Z</Time>
+            <Position>
+              <LatitudeDegrees>43.62588646821678</LatitudeDegrees>
+              <LongitudeDegrees>-114.35205325484276</LongitudeDegrees>
+            </Position>
+            <AltitudeMeters>1714.4000244140625</AltitudeMeters>
+            <DistanceMeters>7.980000019073486</DistanceMeters>
+            <Extensions>
+              <ns3:TPX>
+                <ns3:Speed>3.368000030517578</ns3:Speed>
+              </ns3:TPX>
+            </Extensions>
+          </Trackpoint>
+        </Track>
+        <Extensions>
+          <ns3:LX>
+            <ns3:AvgSpeed>2.500999927520752</ns3:AvgSpeed>
+          </ns3:LX>
+        </Extensions>
+      </Lap>
+      <Creator xsi:type="Device_t">
+        <Name>Edge 530</Name>
+        <UnitId>3383035671</UnitId>
+        <ProductID>3121</ProductID>
+        <Version>
+          <VersionMajor>9</VersionMajor>
+          <VersionMinor>10</VersionMinor>
+          <BuildMajor>0</BuildMajor>
+          <BuildMinor>0</BuildMinor>
+        </Version>
+      </Creator>
+    </Activity>
+  </Activities>
+  <Author xsi:type="Application_t">
+    <Name>Connect Api</Name>
+    <Build>
+      <Version>
+        <VersionMajor>0</VersionMajor>
+        <VersionMinor>0</VersionMinor>
+        <BuildMajor>0</BuildMajor>
+        <BuildMinor>0</BuildMinor>
+      </Version>
+    </Build>
+    <LangID>en</LangID>
+    <PartNumber>006-D2449-00</PartNumber>
+  </Author>
+</TrainingCenterDatabase>

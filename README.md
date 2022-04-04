@@ -240,7 +240,7 @@ Notice the high (29.50%) maximum grade value. This is often a by product of poor
 
 ```
 $ gpxFileTool --start-time now --set-speed 12.5 --sma-metric grade --sma-window 5 SampleGpxFiles/TrailCreekEoP_RWGPS_Route.gpx > outFiles/TrailCreekEoP_RWGPS_Ride.gpx
-$ gpxFileTool.exe --summary outFiles/TrailCreekEoP_RWGPS_Ride.gpx
+$ gpxFileTool --summary outFiles/TrailCreekEoP_RWGPS_Ride.gpx
     numTrkPts: 93
  numDupTrkPts: 0
 numTrimTrkPts: 0
@@ -268,7 +268,7 @@ To illustrate the effect of using SMA to smooth out the grade, this [graph](http
 In this example we instruct the tool to generate a Comma-Separated-Value (CSV) output file, so that the file can be loaded into a spreadsheet app (such as Excel or Libre Office Calc) for further analysis and data visualization:
 
 ```
-$ gpxFileTool.exe --quiet --output-format csv SampleGpxFiles/WahooElmntBolt.gpx > outFiles/WahooElmntBolt.csv
+$ gpxFileTool --quiet --output-format csv SampleGpxFiles/WahooElmntBolt.gpx > outFiles/WahooElmntBolt.csv
 ```
 The CSV output file looks like this:
 
@@ -293,7 +293,7 @@ And this [screenshot](https://drive.google.com/file/d/1w4DPMP_rp_gmzHq6_NTPFvKDd
 In this example we stitch together two GPX files from the same activity. This is a common situation when, for example, a long out-and-back ride is interrupted at the turn around point (e.g. to stop for lunch) and the GPS device is stopped to save battery.
 
 ```
-$ gpxFileTool.exe --summary SampleGpxFiles/Afternoon_Hike_1of2.gpx
+$ gpxFileTool --summary SampleGpxFiles/Afternoon_Hike_1of2.gpx
     numTrkPts: 219
  numDupTrkPts: 0
 numTrimTrkPts: 0
@@ -313,7 +313,7 @@ numDiscTrkPts: 0
      maxGrade: 14.88% at TrkPt #41 (SampleGpxFiles/Afternoon_Hike_1of2.gpx:170) : time = 41 s, distance = 0.038 km, run = 0.672 m, rise = 0.100 m
      minGrade: -6.96% at TrkPt #121 (SampleGpxFiles/Afternoon_Hike_1of2.gpx:490) : time = 121 s, distance = 0.161 km, run = 1.437 m, rise = -0.100 m
 
-$ gpxFileTool.exe --summary SampleGpxFiles/Afternoon_Hike_2of2.gpx
+$ gpxFileTool --summary SampleGpxFiles/Afternoon_Hike_2of2.gpx
     numTrkPts: 200
  numDupTrkPts: 0
 numTrimTrkPts: 0
@@ -333,8 +333,8 @@ numDiscTrkPts: 0
      maxGrade: 9.49% at TrkPt #15 (SampleGpxFiles/Afternoon_Hike_2of2.gpx:66) : time = 16 s, distance = 0.042 km, run = 1.053 m, rise = 0.100 m
      minGrade: -8.40% at TrkPt #163 (SampleGpxFiles/Afternoon_Hike_2of2.gpx:658) : time = 164 s, distance = 0.284 km, run = 1.190 m, rise = -0.100 m
 
-$ gpxFileTool.exe SampleGpxFiles/Afternoon_Hike_1of2.gpx SampleGpxFiles/Afternoon_Hike_2of2.gpx > outFiles/Afternoon_Hike_Combined.gpx
-$ gpxFileTool.exe --summary outFiles/Afternoon_Hike_Combined.gpx
+$ gpxFileTool SampleGpxFiles/Afternoon_Hike_1of2.gpx SampleGpxFiles/Afternoon_Hike_2of2.gpx > outFiles/Afternoon_Hike_Combined.gpx
+$ gpxFileTool --summary outFiles/Afternoon_Hike_Combined.gpx
     numTrkPts: 419
  numDupTrkPts: 0
 numTrimTrkPts: 0
@@ -360,7 +360,8 @@ numDiscTrkPts: 0
 In this example we process a GPX file, removing the cadence, heart rate, and power metrics, and create a new TCX file:
 
 ```
-$ gpxFileTool.exe --quiet --output-filter 0x0f --output-format tcx SampleGpxFiles/FulGaz_Col_de_la_Madone.gpx > outFiles/FulGaz_Col_de_la_Madone.tcx
+$ gpxFileTool --quiet --output-filter 0x0f --output-format tcx SampleGpxFiles/FulGaz_Col_de_la_Madone.gpx > outFiles/FulGaz_Col_de_la_Madone.tcx
+
 ```     
 
 
