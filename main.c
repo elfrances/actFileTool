@@ -34,7 +34,7 @@
 
 // Program version info
 static const int progVerMajor = 1;
-static const int progVerMinor = 1;
+static const int progVerMinor = 2;
 
 // Compile-time build info
 static const char *buildInfo = "built on " __DATE__ " at " __TIME__;
@@ -134,6 +134,7 @@ typedef struct GpsTrk {
     // Aggregate values
     int heartRate;
     int cadence;
+    int power;
     int temp;
     double time;
     double stoppedTime;             // amount of time with speed=0
@@ -141,22 +142,41 @@ typedef struct GpsTrk {
     double elevGain;
     double elevLoss;
 
-    // Min/Max values
-    int maxHeartRate;
+    // Max values
     int maxCadence;
+    int maxHeartRate;
+    int maxPower;
     int maxTemp;
-    int minTemp;
     double maxDeltaD;
     double maxDeltaT;
-    double maxSpeed;
     double maxGrade;
-    double minGrade;
+    double maxSpeed;
 
+    // Min values
+    int minCadence;
+    int minHeartRate;
+    int minPower;
+    int minTemp;
+    double minGrade;
+    double minSpeed;
+
+    const TrkPt *maxCadenceTrkPt;   // TrkPt with max cadence value
     const TrkPt *maxDeltaDTrkPt;    // TrkPt with max distance
     const TrkPt *maxDeltaTTrkPt;    // TrkPt with max time interval
-    const TrkPt *maxSpeedTrkPt;     // TrkPt with max speed value
     const TrkPt *maxGradeTrkPt;     // TrkPt with max grade value
+    const TrkPt *maxHeartRateTrkPt; // TrkPt with max HR value
+    const TrkPt *maxPowerTrkPt;     // TrkPt with max power value
+    const TrkPt *maxSpeedTrkPt;     // TrkPt with max speed value
+    const TrkPt *maxTempTrkPt;      // TrkPt with max temp value
+
+    const TrkPt *minCadenceTrkPt;   // TrkPt with min cadence value
+    const TrkPt *minDeltaDTrkPt;    // TrkPt with min distance
+    const TrkPt *minDeltaTTrkPt;    // TrkPt with min time interval
     const TrkPt *minGradeTrkPt;     // TrkPt with min grade value
+    const TrkPt *minHeartRateTrkPt; // TrkPt with min HR value
+    const TrkPt *minPowerTrkPt;     // TrkPt with min power value
+    const TrkPt *minSpeedTrkPt;     // TrkPt with min speed value
+    const TrkPt *minTempTrkPt;      // TrkPt with min temp value
 } GpsTrk;
 
 // Activity type
@@ -196,7 +216,7 @@ typedef enum SmaMetric {
 typedef struct CmdArgs {
     int argc;           // number of arguments
     char **argv;        // list of arguments
-    const char *inFile; // input file
+    const char *inFile; // input file name
 
     ActType actType;    // activity type for the output file
     int closeGap;       // close the time gap at the specified track point
@@ -220,18 +240,22 @@ typedef struct CmdArgs {
 } CmdArgs;
 
 static const char *xmlHeader = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+
 static const char *gpxHeader = "<gpx creator=\"gpxFileTool\" version=\"%d.%d\"\n"
                                "  xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/11.xsd\"\n"
                                "  xmlns:ns3=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\"\n"
                                "  xmlns=\"http://www.topografix.com/GPX/1/1\"\n"
                                "  xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:ns2=\"http://www.garmin.com/xmlschemas/GpxExtensions/v3\">\n";
-static const char *tcxHeader = "<TrainingCenterDatabase"
-                               "  xsi:schemaLocation=\"http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd\""
-                               "  xmlns:ns5=\"http://www.garmin.com/xmlschemas/ActivityGoals/v1\""
-                               "  xmlns:ns3=\"http://www.garmin.com/xmlschemas/ActivityExtension/v2\""
-                               "  xmlns:ns2=\"http://www.garmin.com/xmlschemas/UserProfile/v2\""
-                               "  xmlns=\"http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2\""
+
+static const char *tcxHeader = "<TrainingCenterDatabase\n"
+                               "  xsi:schemaLocation=\"http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd\"\n"
+                               "  xmlns:ns5=\"http://www.garmin.com/xmlschemas/ActivityGoals/v1\"\n"
+                               "  xmlns:ns3=\"http://www.garmin.com/xmlschemas/ActivityExtension/v2\"\n"
+                               "  xmlns:ns2=\"http://www.garmin.com/xmlschemas/UserProfile/v2\"\n"
+                               "  xmlns=\"http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2\"\n"
                                "  xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:ns4=\"http://www.garmin.com/xmlschemas/ProfileExtension/v1\">\n";
+
+static const char *fgTcxSig = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\" ?><TrainingCenterDatabase ";
 
 static const double degToRad = (double) 0.01745329252;  // decimal degrees to radians
 static const double earthMeanRadius = (double) 6372797.560856;  // in meters
@@ -490,11 +514,6 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
         pArgs->outFile = stdout;
     }
 
-    if (pArgs->outFmt == nil) {
-        // By default use GPX output format
-        pArgs->outFmt = gpx;
-    }
-
     if ((pArgs->smaWindow != 0) && (pArgs->smaMetric == 0)) {
         // By default run the SMA over the elevation value
         pArgs->smaMetric = elevation;
@@ -549,12 +568,18 @@ static void dumpTrkPts(GpsTrk *pTrk, TrkPt *p, int numPtsBefore, int numPtsAfter
 
 static int getLine(FILE *fp, char *lineBuf, size_t bufLen, int lineNum)
 {
-    if (fgets(lineBuf, bufLen, fp) == NULL)
-        return -1;
+    while (true) {
+        if (fgets(lineBuf, bufLen, fp) == NULL)
+            return -1;
 
-    lineNum++;
+        lineNum++;
 
-    //fprintf(stdout, "%u: %s", lineNum, lineBuf);
+        //fprintf(stdout, "%u: %s", lineNum, lineBuf);
+
+        // Skip comment lines
+        if (strstr(lineBuf, "<!--") == NULL)
+            break;
+    }
 
     return lineNum;
 }
@@ -642,6 +667,7 @@ static int parseGpxFile(CmdArgs *pArgs, GpsTrk *pTrk)
     int lineNum = 0;
     int metaData = 0;
     static char lineBuf[4096];
+    size_t bufLen = sizeof (lineBuf);
 
     // Open the GPX file for reading
     if ((fp = fopen(inFile, "r")) == NULL) {
@@ -658,13 +684,13 @@ static int parseGpxFile(CmdArgs *pArgs, GpsTrk *pTrk)
     //   .
     // </gpx>
     //
-    lineNum = getLine(fp, lineBuf, sizeof (lineBuf), lineNum);
+    lineNum = getLine(fp, lineBuf, bufLen, lineNum);
     if ((lineNum < 0) ||
         (strstr(lineBuf, "<?xml ") == NULL)) {
         fprintf(stderr, "Input file is not an XML file !!!\n");
         return -1;
     }
-    lineNum = getLine(fp, lineBuf, sizeof (lineBuf), lineNum);
+    lineNum = getLine(fp, lineBuf, bufLen, lineNum);
     if ((lineNum < 0) ||
         (strstr(lineBuf, "<gpx ") == NULL)) {
         fprintf(stderr, "Input file is not a recognized GPX file !!!\n");
@@ -673,7 +699,7 @@ static int parseGpxFile(CmdArgs *pArgs, GpsTrk *pTrk)
 
     // Process one line at a time, looking for <trkpt> ... </trkpt>
     // blocks that define each individual track point.
-    while ((lineNum = getLine(fp, lineBuf, sizeof (lineBuf), lineNum)) != -1) {
+    while ((lineNum = getLine(fp, lineBuf, bufLen, lineNum)) != -1) {
         double latitude, longitude, elevation;
         struct tm brkDwnTime = {0};
         int type, ambTemp, cadence, heartRate, power;
@@ -792,6 +818,12 @@ static int parseGpxFile(CmdArgs *pArgs, GpsTrk *pTrk)
         }
     }
 
+    // If no explicit output format has been specified,
+    // use the same format as the input file.
+    if (pArgs->outFmt == nil) {
+        pArgs->outFmt = gpx;
+    }
+
     fclose(fp);
 
     return 0;
@@ -827,7 +859,24 @@ static int parseGpxFile(CmdArgs *pArgs, GpsTrk *pTrk)
 //
 // Strava:
 //
-// No support for TCX export
+//      <Trackpoint>
+//        <Time>2022-04-03T19:32:02Z</Time>
+//        <Position>
+//          <LatitudeDegrees>43.6230360</LatitudeDegrees>
+//          <LongitudeDegrees>-114.3528450</LongitudeDegrees>
+//        </Position>
+//        <AltitudeMeters>1697.0</AltitudeMeters>
+//        <DistanceMeters>0.0</DistanceMeters>
+//        <HeartRateBpm>
+//          <Value>93</Value>
+//        </HeartRateBpm>
+//        <Cadence>0</Cadence>
+//        <Extensions>
+//          <TPX xmlns="http://www.garmin.com/xmlschemas/ActivityExtension/v2">
+//            <Speed>0.0</Speed>
+//          </TPX>
+//        </Extensions>
+//      </Trackpoint>
 //
 // RWGPS:
 //
@@ -872,7 +921,7 @@ static int parseGpxFile(CmdArgs *pArgs, GpsTrk *pTrk)
 //    </Extensions>
 //  </Trackpoint>
 //
-// FulGaz:
+// FulGaz (after indenting XML):
 //
 //  <Trackpoint>
 //    <Time>2022-03-12T16:02:56.0000000Z</Time>
@@ -893,63 +942,31 @@ static int parseGpxFile(CmdArgs *pArgs, GpsTrk *pTrk)
 //      </TPX></Extensions>
 //  </Trackpoint>
 
-static int parseFulGazTcxFile(CmdArgs *pArgs, GpsTrk *pTrk, FILE *fp)
+static int parseFulGazTcxFile(CmdArgs *pArgs, GpsTrk *pTrk, FILE *fp, char *lineBuf, size_t bufLen, int lineNum)
 {
     fprintf(stderr, "TBD !!!\n");
     return 0;
 }
 
-static int parseTcxFile(CmdArgs *pArgs, GpsTrk *pTrk)
+static int parseNormalTcxFile(CmdArgs *pArgs, GpsTrk *pTrk, FILE *fp, char *lineBuf, size_t bufLen, int lineNum)
 {
-    FILE *fp;
     TrkPt *pTrkPt = NULL;
     const char *inFile = pArgs->inFile;
-    int lineNum = 0;
     int trackBlock = false;
-    static char lineBuf[4096];
-    static const char *fgTcxSig = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\" ?><TrainingCenterDatabase";
 
-    // Open the TCX file for reading
-    if ((fp = fopen(inFile, "r")) == NULL) {
-        fprintf(stderr, "Failed to open input file %s\n", inFile);
+    if ((lineNum = getLine(fp, lineBuf, bufLen, lineNum)) < 0) {
+        fprintf(stderr, "Can't read input file: %s\n", pArgs->inFile);
         return -1;
     }
 
-    // Validate the input file. The common format used by Garmin,
-    // Strava, RideWithGps, etc. is:
-    //
-    // <?xml ...>
-    // <TrainingCenterDatabase  ...>
-    //   .
-    //   .
-    //   .
-    // </TrainingCenterDatabase>
-    //
-    // However, the TCX activity files created by FulGaz have all
-    // data collapsed into a single loooong line of text, that has
-    // the following signature:
-    //
-    // <?xml version="1.0" encoding="UTF-8" standalone="no" ?><TrainingCenterDatabase ...
-    //
-    lineNum = getLine(fp, lineBuf, sizeof (lineBuf), lineNum);
-    if (strstr(lineBuf, fgTcxSig) != NULL) {
-        return parseFulGazTcxFile(pArgs, pTrk, fp);
-    }
-    if ((lineNum < 0) ||
-        (strstr(lineBuf, "<?xml ") == NULL)) {
-        fprintf(stderr, "Input file is not an XML file: lineBuf=%s lineNum=%u\n", lineBuf, lineNum);
-        return -1;
-    }
-    lineNum = getLine(fp, lineBuf, sizeof (lineBuf), lineNum);
-    if ((lineNum < 0) ||
-        (strstr(lineBuf, "<TrainingCenterDatabase") == NULL)) {
+    if (strstr(lineBuf, "<TrainingCenterDatabase") == NULL) {
         fprintf(stderr, "Input file is not a recognized TCX file: lineBuf=%s lineNum=%u\n", lineBuf, lineNum);
         return -1;
     }
 
     // Process one line at a time, looking for <Trackpoint> ... </Trackpoint>
     // blocks that define each individual track point.
-    while ((lineNum = getLine(fp, lineBuf, sizeof (lineBuf), lineNum)) != -1) {
+    while ((lineNum = getLine(fp, lineBuf, bufLen, lineNum)) != -1) {
         if (pTrk->type == 0) {
             if (strstr(lineBuf, "<Activity Sport=\"Biking\">") != NULL) {
                 pTrk->type = ride;
@@ -963,6 +980,7 @@ static int parseTcxFile(CmdArgs *pArgs, GpsTrk *pTrk)
                 pTrk->type = other;
             }
             if (pTrk->type != 0) {
+                // Got the activity type/sport!
                 continue;
             }
         }
@@ -1080,7 +1098,7 @@ static int parseTcxFile(CmdArgs *pArgs, GpsTrk *pTrk)
                 pTrkPt->cadence = cadence;
                 pTrk->inMask |= SD_CADENCE;
             } else if (strstr(lineBuf, "<HeartRateBpm") != NULL) {
-                lineNum = getLine(fp, lineBuf, sizeof (lineBuf), lineNum);
+                lineNum = getLine(fp, lineBuf, bufLen, lineNum);
                 if (sscanf(lineBuf, " <Value>%d</Value>", &heartRate) == 1) {
                     // Got the heart rate!
                     if (pTrkPt == NULL) {
@@ -1108,9 +1126,62 @@ static int parseTcxFile(CmdArgs *pArgs, GpsTrk *pTrk)
         }
     }
 
+    return 0;
+}
+
+static int parseTcxFile(CmdArgs *pArgs, GpsTrk *pTrk)
+{
+    FILE *fp;
+    const char *inFile = pArgs->inFile;
+    int lineNum = 0;
+    static char lineBuf[1024];
+    size_t bufLen = sizeof (lineBuf);
+    int s;
+
+    // Open the TCX file for reading
+    if ((fp = fopen(inFile, "r")) == NULL) {
+        fprintf(stderr, "Failed to open input file %s\n", inFile);
+        return -1;
+    }
+
+    // Validate the input file. The common format used by Garmin,
+    // Strava, RideWithGps, etc. is:
+    //
+    // <?xml ...>
+    // <TrainingCenterDatabase  ...>
+    //   .
+    //   .
+    //   .
+    // </TrainingCenterDatabase>
+    //
+    // However, the TCX activity files created by FulGaz have all
+    // data collapsed into a single loooong line of text, that has
+    // the following signature:
+    //
+    // <?xml version="1.0" encoding="UTF-8" standalone="no" ?><TrainingCenterDatabase ...
+    //
+    if ((lineNum = getLine(fp, lineBuf, bufLen, lineNum)) < 0) {
+        fprintf(stderr, "Can't read input file: %s\n", inFile);
+        return -1;
+    }
+    if (strstr(lineBuf, fgTcxSig) != NULL) {
+        s = parseFulGazTcxFile(pArgs, pTrk, fp, lineBuf, bufLen, lineNum);
+    } else if (strstr(lineBuf, "<?xml ") != NULL) {
+        s = parseNormalTcxFile(pArgs, pTrk, fp, lineBuf, bufLen, lineNum);
+    } else {
+        fprintf(stderr, "Input file is not an XML file: lineBuf=%s lineNum=%u\n", lineBuf, lineNum);
+        return -1;
+    }
+
+    // If no explicit output format has been specified,
+    // use the same format as the input file.
+    if (pArgs->outFmt == nil) {
+        pArgs->outFmt = tcx;
+    }
+
     fclose(fp);
 
-    return 0;
+    return s;
 }
 
 static TrkPt *nxtTrkPt(TrkPt **p1, TrkPt *p2)
@@ -1650,6 +1721,13 @@ static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
             pTrk->elevLoss += fabs(p2->rise);
         }
 
+        // Update the rolling cadence, heart rate, and power
+        // values used to compute the activity averages.
+        pTrk->cadence += p2->cadence;
+        pTrk->heartRate += p2->heartRate;
+        pTrk->power += p2->power;
+        pTrk->temp += p2->ambTemp;
+
         p2 = nxtTrkPt(&p1, p2);
     }
 
@@ -1661,17 +1739,64 @@ static int compDataPhase3(GpsTrk *pTrk, CmdArgs *pArgs)
     TrkPt *p1 = TAILQ_FIRST(&pTrk->trkPtList);  // previous TrkPt
     TrkPt *p2 = TAILQ_NEXT(p1, tqEntry);    // current TrkPt
 
-    pTrk->minGrade = 99.9;
+    pTrk->minCadence = +999;
+    pTrk->maxCadence = -999;
+    pTrk->minHeartRate = +999;
+    pTrk->maxHeartRate = -999;
+    pTrk->minPower = +9999;
+    pTrk->maxPower = -9999;
+    pTrk->minSpeed = +999.9;
+    pTrk->maxSpeed = -999.9;
+    pTrk->minTemp = +999.9;
+    pTrk->maxTemp = -999.9;
+    pTrk->minGrade = +99.9;
     pTrk->maxGrade = -99.9;
 
     while (p2 != NULL) {
-        // Update the max speed value
+        // Update the min/max values
+        if (pTrk->inMask & SD_CADENCE) {
+            if (p2->cadence > pTrk->maxCadence) {
+                 pTrk->maxCadence = p2->cadence;
+                 pTrk->maxCadenceTrkPt = p2;
+            } else if ((p2->cadence != 0) && (p2->cadence < pTrk->minCadence)) {
+                pTrk->minCadence = p2->cadence;
+                pTrk->minCadenceTrkPt = p2;
+            }
+        }
+        if (pTrk->inMask & SD_HR) {
+            if (p2->heartRate > pTrk->maxHeartRate) {
+                 pTrk->maxHeartRate = p2->heartRate;
+                 pTrk->maxHeartRateTrkPt = p2;
+            } else if ((p2->heartRate != 0) && (p2->heartRate < pTrk->minHeartRate)) {
+                pTrk->minHeartRate = p2->heartRate;
+                pTrk->minHeartRateTrkPt = p2;
+            }
+        }
+        if (pTrk->inMask & SD_POWER) {
+            if (p2->power > pTrk->maxPower) {
+                 pTrk->maxPower = p2->power;
+                 pTrk->maxPowerTrkPt = p2;
+            } else if ((p2->power != 0) && (p2->power < pTrk->minPower)) {
+                pTrk->minPower = p2->power;
+                pTrk->minPowerTrkPt = p2;
+            }
+        }
         if (p2->speed > pTrk->maxSpeed) {
              pTrk->maxSpeed = p2->speed;
              pTrk->maxSpeedTrkPt = p2;
+        } else if ((p2->speed != 0) && (p2->speed < pTrk->minSpeed)) {
+            pTrk->minSpeed = p2->speed;
+            pTrk->minSpeedTrkPt = p2;
         }
-
-        // Update the min/max values
+        if (pTrk->inMask & SD_ATEMP) {
+            if (p2->ambTemp > pTrk->maxTemp) {
+                 pTrk->maxTemp = p2->ambTemp;
+                 pTrk->maxTempTrkPt = p2;
+            } else if (p2->ambTemp < pTrk->minTemp) {
+                pTrk->minTemp = p2->ambTemp;
+                pTrk->minTempTrkPt = p2;
+            }
+        }
         if (p2->grade > pTrk->maxGrade) {
              pTrk->maxGrade = p2->grade;
              pTrk->maxGradeTrkPt = p2;
@@ -1709,11 +1834,11 @@ static void printSummary(GpsTrk *pTrk, CmdArgs *pArgs)
     time_t time;
     const TrkPt *p;
 
-    fprintf(pArgs->outFile, "    numTrkPts: %d\n", pTrk->numTrkPts);
-    fprintf(pArgs->outFile, " numDupTrkPts: %d\n", pTrk->numDupTrkPts);
-    fprintf(pArgs->outFile, "numTrimTrkPts: %d\n", pTrk->numTrimTrkPts);
-    fprintf(pArgs->outFile, "numDiscTrkPts: %d\n", pTrk->numDiscTrkPts);
-    fprintf(pArgs->outFile, "   numElevAdj: %d\n", pTrk->numElevAdj);
+    fprintf(pArgs->outFile, "      numTrkPts: %d\n", pTrk->numTrkPts);
+    fprintf(pArgs->outFile, "   numDupTrkPts: %d\n", pTrk->numDupTrkPts);
+    fprintf(pArgs->outFile, "  numTrimTrkPts: %d\n", pTrk->numTrimTrkPts);
+    fprintf(pArgs->outFile, "  numDiscTrkPts: %d\n", pTrk->numDiscTrkPts);
+    fprintf(pArgs->outFile, "     numElevAdj: %d\n", pTrk->numElevAdj);
 
     // Date & time
     {
@@ -1732,42 +1857,84 @@ static void printSummary(GpsTrk *pTrk, CmdArgs *pArgs)
 
     // Elapsed time
     time = pTrk->endTime - pTrk->startTime;
-    fprintf(pArgs->outFile, "  elapsedTime: %s\n", fmtTimeStamp(time, hms));
+    fprintf(pArgs->outFile, "    elapsedTime: %s\n", fmtTimeStamp(time, hms));
 
     // Total time
     time = pTrk->time;
-    fprintf(pArgs->outFile, "    totalTime: %s\n", fmtTimeStamp(time, hms));
+    fprintf(pArgs->outFile, "      totalTime: %s\n", fmtTimeStamp(time, hms));
 
     // Moving time
     time = pTrk->time - pTrk->stoppedTime;
-    fprintf(pArgs->outFile, "   movingTime: %s\n", fmtTimeStamp(time, hms));
+    fprintf(pArgs->outFile, "     movingTime: %s\n", fmtTimeStamp(time, hms));
 
     // Stopped time
     time = pTrk->stoppedTime;
-    fprintf(pArgs->outFile, "  stoppedTime: %s\n", fmtTimeStamp(time, hms));
+    fprintf(pArgs->outFile, "    stoppedTime: %s\n", fmtTimeStamp(time, hms));
 
-    fprintf(pArgs->outFile, "     distance: %.10lf km\n", (pTrk->distance / 1000.0));
-    fprintf(pArgs->outFile, "     elevGain: %.10lf m\n", pTrk->elevGain);
-    fprintf(pArgs->outFile, "     elevLoss: %.10lf m\n", pTrk->elevLoss);
+    fprintf(pArgs->outFile, "       distance: %.10lf km\n", (pTrk->distance / 1000.0));
+    fprintf(pArgs->outFile, "       elevGain: %.10lf m\n", pTrk->elevGain);
+    fprintf(pArgs->outFile, "       elevLoss: %.10lf m\n", pTrk->elevLoss);
+
+    // Max/Min/Avg values
+    if (pTrk->inMask & SD_CADENCE) {
+        fprintf(pArgs->outFile, "     maxCadence: %d rpm\n", pTrk->maxCadence);
+        fprintf(pArgs->outFile, "     minCadence: %d rpm\n", pTrk->minCadence);
+        fprintf(pArgs->outFile, "     avgCadence: %d rpm\n", (pTrk->cadence / pTrk->numTrkPts));
+    }
+    if (pTrk->inMask & SD_HR) {
+        fprintf(pArgs->outFile, "          maxHR: %d bpm\n", pTrk->maxHeartRate);
+        fprintf(pArgs->outFile, "          minHR: %d bpm\n", pTrk->minHeartRate);
+        fprintf(pArgs->outFile, "          avgHR: %d bpm\n", (pTrk->heartRate / pTrk->numTrkPts));
+    }
+    if (pTrk->inMask & SD_POWER) {
+        fprintf(pArgs->outFile, "       maxPower: %d watts\n", pTrk->maxPower);
+        fprintf(pArgs->outFile, "       minPower: %d watts\n", pTrk->minPower);
+        fprintf(pArgs->outFile, "       avgPower: %d watts\n", (pTrk->power / pTrk->numTrkPts));
+    }
+    fprintf(pArgs->outFile, "       maxSpeed: %.3lf km/h\n", (pTrk->maxSpeed * 3.6));
+    fprintf(pArgs->outFile, "       minSpeed: %.3lf km/h\n", (pTrk->minSpeed * 3.6));
+    fprintf(pArgs->outFile, "       avgSpeed: %.3lf km/h\n", ((pTrk->distance * 3.6) / pTrk->time));
+    if (pTrk->inMask & SD_ATEMP) {
+        fprintf(pArgs->outFile, "        maxTemp: %d C\n", pTrk->maxTemp);
+        fprintf(pArgs->outFile, "        minTemp: %d C\n", pTrk->minTemp);
+        fprintf(pArgs->outFile, "        avgTemp: %d C\n", (pTrk->temp / pTrk->numTrkPts));
+    }
+
     if ((p = pTrk->maxDeltaDTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "    maxDeltaD: %.3lf m at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+        fprintf(pArgs->outFile, "      maxDeltaD: %.3lf m at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
                 pTrk->maxDeltaD, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
     }
     if ((p = pTrk->maxDeltaTTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "    maxDeltaT: %.3lf sec at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+        fprintf(pArgs->outFile, "      maxDeltaT: %.3lf sec at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
                 pTrk->maxDeltaT, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
     }
-    if ((p = pTrk->maxSpeedTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "     maxSpeed: %.10lf km/h at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, deltaD = %.3lf m, deltaT = %.3lf s\n",
-                (pTrk->maxSpeed * 3.6), p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0), p->dist, p->deltaT);
+    if ((p = pTrk->maxCadenceTrkPt) != NULL) {
+        fprintf(pArgs->outFile, "     maxCadence: %d rpm at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->maxCadence, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
     }
     if ((p = pTrk->maxGradeTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "     maxGrade: %.2lf%% at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, run = %.3lf m, rise = %.3lf m\n",
+        fprintf(pArgs->outFile, "       maxGrade: %.2lf%% at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, run = %.3lf m, rise = %.3lf m\n",
                 pTrk->maxGrade, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0), p->run, p->rise);
     }
     if ((p = pTrk->minGradeTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "     minGrade: %.2lf%% at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, run = %.3lf m, rise = %.3lf m\n",
+        fprintf(pArgs->outFile, "       minGrade: %.2lf%% at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, run = %.3lf m, rise = %.3lf m\n",
                 pTrk->minGrade, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0), p->run, p->rise);
+    }
+    if ((p = pTrk->maxHeartRateTrkPt) != NULL) {
+        fprintf(pArgs->outFile, "          maxHR: %d bpm at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->maxHeartRate, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
+    }
+    if ((p = pTrk->maxPowerTrkPt) != NULL) {
+        fprintf(pArgs->outFile, "       maxPower: %d watts at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->maxPower, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
+    }
+    if ((p = pTrk->maxSpeedTrkPt) != NULL) {
+        fprintf(pArgs->outFile, "       maxSpeed: %.10lf km/h at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, deltaD = %.3lf m, deltaT = %.3lf s\n",
+                (pTrk->maxSpeed * 3.6), p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0), p->dist, p->deltaT);
+    }
+    if ((p = pTrk->maxTempTrkPt) != NULL) {
+        fprintf(pArgs->outFile, "       maxTemp: %d C at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->maxTemp, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
     }
 }
 
@@ -1988,6 +2155,14 @@ static void printTcxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
     fprintf(pArgs->outFile, "        <TotalTimeSeconds>%.3lf</TotalTimeSeconds>\n", pTrk->time);
     fprintf(pArgs->outFile, "        <DistanceMeters>%.10lf</DistanceMeters>\n", pTrk->distance);
     fprintf(pArgs->outFile, "        <MaximumSpeed>%.10lf</MaximumSpeed>\n", pTrk->maxSpeed);
+    fprintf(pArgs->outFile, "        <AverageHeartRateBpm>\n");
+    fprintf(pArgs->outFile, "          <Value>%d</Value>\n", (pTrk->heartRate / pTrk->numTrkPts));
+    fprintf(pArgs->outFile, "        </AverageHeartRateBpm>\n");
+    fprintf(pArgs->outFile, "        <MaximumHeartRateBpm>\n");
+    fprintf(pArgs->outFile, "          <Value>%d</Value>\n", pTrk->maxHeartRate);
+    fprintf(pArgs->outFile, "        </MaximumHeartRateBpm>\n");
+    fprintf(pArgs->outFile, "        <Cadence>%d</Cadence>\n", pTrk->maxCadence);   // this <Cadence> seems to be the max cadence value
+    fprintf(pArgs->outFile, "        <TriggerMethod>Manual</TriggerMethod>\n");
     fprintf(pArgs->outFile, "        <Track>\n");
 
     // Print all the track points
