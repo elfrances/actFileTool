@@ -33,11 +33,14 @@
 #endif  // _MSC_FULL_VER
 
 // Program version info
-const int progVerMajor = 1;
-const int progVerMinor = 0;
+static const int progVerMajor = 1;
+static const int progVerMinor = 1;
 
 // Compile-time build info
 static const char *buildInfo = "built on " __DATE__ " at " __TIME__;
+
+// This constant indicates a nil elevation
+static const double nilElev = -9999.99; // 10,000 meters below sea level! :)
 
 typedef enum Bool {
     false = 0,
@@ -568,6 +571,23 @@ static void noActTrkPt(const char *inFile, int lineNum, const char *lineBuf)
     exit(-1);
 }
 
+static TrkPt *newTrkPt(int index, const char *inFile, int lineNum)
+{
+    TrkPt *pTrkPt;
+
+    if ((pTrkPt = calloc(1, sizeof(TrkPt))) == NULL) {
+        fprintf(stderr, "Failed to alloc TrkPt object !!!\n");
+        return NULL;
+    }
+
+    pTrkPt->index = index;
+    pTrkPt->inFile = inFile;
+    pTrkPt->lineNum = lineNum;
+    pTrkPt->elevation = nilElev;
+
+    return pTrkPt;
+}
+
 // Parse the GPX file and create a list of Track Points (TrkPt's).
 // Notice that the number and format of each metric included in
 // the TrkPt's can depend on the application which created the GPX
@@ -681,14 +701,11 @@ static int parseGpxFile(CmdArgs *pArgs, GpsTrk *pTrk)
             }
 
             // Alloc and init new TrkPt object
-            if ((pTrkPt = calloc(1, sizeof(TrkPt))) == NULL) {
-                fprintf(stderr, "Failed to alloc TrkPt object !!!\n");
+            if ((pTrkPt = newTrkPt(pTrk->numTrkPts++, inFile, lineNum)) == NULL) {
+                fprintf(stderr, "Failed to create TrkPt object !!!\n");
                 return -1;
             }
 
-            pTrkPt->index = pTrk->numTrkPts++;
-            pTrkPt->inFile = inFile;
-            pTrkPt->lineNum = lineNum;
             pTrkPt->latitude = latitude;
             pTrkPt->longitude = longitude;
         } else if (sscanf(lineBuf, " <ele>%le</ele>", &elevation) == 1) {
@@ -983,14 +1000,10 @@ static int parseTcxFile(CmdArgs *pArgs, GpsTrk *pTrk)
                 }
 
                 // Alloc and init new TrkPt object
-                if ((pTrkPt = calloc(1, sizeof(TrkPt))) == NULL) {
-                    fprintf(stderr, "Failed to alloc TrkPt object !!!\n");
+                if ((pTrkPt = newTrkPt(pTrk->numTrkPts++, inFile, lineNum)) == NULL) {
+                    fprintf(stderr, "Failed to create TrkPt object !!!\n");
                     return -1;
                 }
-
-                pTrkPt->index = pTrk->numTrkPts++;
-                pTrkPt->inFile = inFile;
-                pTrkPt->lineNum = lineNum;
             } else if (sscanf(lineBuf, " <LatitudeDegrees>%le</LatitudeDegrees>", &latitude) == 1) {
                 // Got the latitude!
                 if (pTrkPt == NULL) {
@@ -1100,6 +1113,12 @@ static int parseTcxFile(CmdArgs *pArgs, GpsTrk *pTrk)
     return 0;
 }
 
+static TrkPt *nxtTrkPt(TrkPt **p1, TrkPt *p2)
+{
+    *p1 = p2;
+    return TAILQ_NEXT(p2, tqEntry);
+}
+
 static TrkPt *remTrkPt(GpsTrk *pTrk, TrkPt *p)
 {
     TrkPt *nxt = TAILQ_NEXT(p, tqEntry);
@@ -1115,6 +1134,8 @@ static int checkTrkPts(GpsTrk *pTrk, CmdArgs *pArgs)
     Bool discTrkPt = false;
     Bool trimTrkPts = false;
     double trimmedTime = 0.0;
+    double trimmedDistance = 0.0;
+    TrkPt *p0 = NULL;
 
     while (p2 != NULL) {
         // Discard any duplicate points, and any points
@@ -1122,7 +1143,7 @@ static int checkTrkPts(GpsTrk *pTrk, CmdArgs *pArgs)
         discTrkPt = false;
 
         // Without elevation data, there isn't much we can do!
-        if (p2->elevation == 0.0) {
+        if (p2->elevation == nilElev) {
             fprintf(stderr, "ERROR: TrkPt #%d (%s) is missing its elevation data !\n", p2->index, fmtTrkPtIdx(p2));
             return -1;
         }
@@ -1184,14 +1205,21 @@ static int checkTrkPts(GpsTrk *pTrk, CmdArgs *pArgs)
         if (pArgs->trim) {
             if (p2->index == pArgs->rangeFrom) {
                 // Start trimming
+                if (!pArgs->quiet) {
+                    fprintf(stderr, "INFO: start trimming at TrkPt #%d (%s)\n", p2->index, fmtTrkPtIdx(p2));
+                }
                 trimTrkPts = true;
-                trimmedTime = p2->timestamp;  // set baseline time
                 pTrk->numTrimTrkPts++;
                 discTrkPt = true;
+                p0 = p1;    // set baseline
             } else if (p2->index == pArgs->rangeTo) {
                 // Stop trimming
+                if (!pArgs->quiet) {
+                    fprintf(stderr, "INFO: stop trimming at TrkPt #%d (%s)\n", p2->index, fmtTrkPtIdx(p2));
+                }
                 trimTrkPts = false;
-                trimmedTime = p2->timestamp - trimmedTime + 1;    // total time trimmed out
+                trimmedTime = p2->timestamp - p0->timestamp;    // total time trimmed out
+                trimmedDistance = p2->distance - p0->distance;  // total distance trimmed out
                 pTrk->numTrimTrkPts++;
                 discTrkPt = true;
             } else if (trimTrkPts) {
@@ -1206,14 +1234,14 @@ static int checkTrkPts(GpsTrk *pTrk, CmdArgs *pArgs)
             // Remove this TrkPt from the list
             p2 = remTrkPt(pTrk, p2);
         } else {
-            // If we trimmed out some previous TrkPt's, move
-            // the timestamp of this TrkPt back in time to
-            // "close the gap".
-            if (trimmedTime != 0.0) {
+            // If we trimmed out some previous TrkPt's, then we
+            // need to adjust the timestamp and distance values
+            // of this TrkPt so as to "close the gap".
+            if (p0 != NULL) {
                 p2->timestamp -= trimmedTime;
+                p2->distance -= trimmedDistance;
             }
-            p1 = p2;
-            p2 = TAILQ_NEXT(p2, tqEntry);
+            p2 = nxtTrkPt(&p1, p2);
         }
     }
 
@@ -1240,8 +1268,7 @@ static int closeTimeGap(GpsTrk *pTrk, CmdArgs *pArgs)
             p2->timestamp -= timeGap;
         }
 
-        p1 = p2;
-        p2 = TAILQ_NEXT(p2, tqEntry);
+        p2 = nxtTrkPt(&p1, p2);
     }
 
     return 0;
@@ -1330,20 +1357,25 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
 
         // TCX files include the <DistanceMeters> metric
         // which is the distance (in meters) from the start
-        // to the given point.  For GPX files, we need to
+        // up to the given point.  For GPX files, we need to
         // compute the distance between consecutive points
         // using their GPS data.
         if (p2->distance != 0.0) {
             if ((p2->dist = p2->distance - p1->distance) == 0.0) {
                 // Stopped?
-                if (!pArgs->quiet) {
-                    fprintf(stderr, "WARNING: TrkPt #%d has a null distance value !\n", p2->index);
-                    printTrkPt(p2);
-                }
+                if (!pArgs->verbatim) {
+                    if (!pArgs->quiet) {
+                        fprintf(stderr, "WARNING: TrkPt #%d has a null distance value !\n", p2->index);
+                        printTrkPt(p2);
+                    }
 
-                // Skip and delete this TrkPt
-                p2 = remTrkPt(pTrk, p2);
-                pTrk->numDiscTrkPts++;
+                    // Skip and delete this TrkPt
+                    p2 = remTrkPt(pTrk, p2);
+                    pTrk->numDiscTrkPts++;
+                } else {
+                    // Move on to the next point
+                    p2 = nxtTrkPt(&p1, p2);
+                }
                 continue;
             }
 
@@ -1361,14 +1393,19 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
             // longitude values.
             if ((p2->run = compDistance(p1, p2)) == 0.0) {
                 // Stopped?
-                if (!pArgs->quiet) {
-                    fprintf(stderr, "WARNING: TrkPt #%d has a null run value !\n", p2->index);
-                    printTrkPt(p2);
-                }
+                if (!pArgs->verbatim) {
+                    if (!pArgs->quiet) {
+                        fprintf(stderr, "WARNING: TrkPt #%d has a null run value !\n", p2->index);
+                        printTrkPt(p2);
+                    }
 
-                // Skip and delete this TrkPt
-                p2 = remTrkPt(pTrk, p2);
-                pTrk->numDiscTrkPts++;
+                    // Skip and delete this TrkPt
+                    p2 = remTrkPt(pTrk, p2);
+                    pTrk->numDiscTrkPts++;
+                } else {
+                    // Move on to the next point
+                    p2 = nxtTrkPt(&p1, p2);
+                }
                 continue;
             }
 
@@ -1451,8 +1488,7 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
         // Update the activity's end time
         pTrk->endTime = p2->timestamp;
 
-        p1 = p2;
-        p2 = TAILQ_NEXT(p2, tqEntry);
+        p2 = nxtTrkPt(&p1, p2);
     }
 
     return 0;
@@ -1614,8 +1650,7 @@ static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
             pTrk->elevLoss += fabs(p2->rise);
         }
 
-        p1 = p2;
-        p2 = TAILQ_NEXT(p2, tqEntry);
+        p2 = nxtTrkPt(&p1, p2);
     }
 
     return 0;
@@ -1645,8 +1680,7 @@ static int compDataPhase3(GpsTrk *pTrk, CmdArgs *pArgs)
             pTrk->minGradeTrkPt = p2;
         }
 
-        p1 = p2;
-        p2 = TAILQ_NEXT(p2, tqEntry);
+        p2 = nxtTrkPt(&p1, p2);
     }
 
     return 0;
@@ -2076,13 +2110,19 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    // Now run some consistency checks on all the TrkPt's
-    if (checkTrkPts(&gpsTrk, &cmdArgs) != 0) {
-        fprintf(stderr, "Failed to trim/delete TrkPt's\n");
+    // The first point is used as the reference point, so we
+    // must check a few things before we proceed...
+
+    if (pTrkPt->elevation == nilElev) {
+        // If the first TrkPt is missing its elevation data,
+        // as is the case with some GPX/TCX files exported by
+        // some tools, the grade value of the second TrkPt
+        // will be huge...
+        fprintf(stderr, "ERROR: TrkPt #%d (%s) is missing its elevation data !\n",
+                pTrkPt->index, fmtTrkPtIdx(pTrkPt));
         return -1;
     }
 
-    // The first point is used a the reference point...
     if (pTrkPt->timestamp == 0.0) {
         // TrkPt has no time information, likely because this
         // is a GPX/TCX route, and not an actual GPX/TCX ride.
@@ -2098,11 +2138,17 @@ int main(int argc, char **argv)
         // Set the timestamp of the first point to the desired
         // start time of the ride (activity).
         pTrkPt->timestamp = cmdArgs.startTime;
-    } else if (cmdArgs.startTime != 0) {
+    } else if (cmdArgs.startTime != 0.0) {
         // We are changing the start date/time of the activity
         // so set the time offset used to adjust the timestamp
         // of each point accordingly.
         gpsTrk.timeOffset = cmdArgs.startTime - pTrkPt->timestamp;
+    }
+
+    // Now run some consistency checks on all the TrkPt's
+    if (checkTrkPts(&gpsTrk, &cmdArgs) != 0) {
+        fprintf(stderr, "Failed to trim/delete TrkPt's\n");
+        return -1;
     }
 
     // Set the activity's start time
