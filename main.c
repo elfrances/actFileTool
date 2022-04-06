@@ -34,7 +34,7 @@
 
 // Program version info
 static const int progVerMajor = 1;
-static const int progVerMinor = 3;
+static const int progVerMinor = 4;
 
 // Compile-time build info
 static const char *buildInfo = "built on " __DATE__ " at " __TIME__;
@@ -141,6 +141,7 @@ typedef struct GpsTrk {
     double distance;
     double elevGain;
     double elevLoss;
+    double grade;
 
     // Max values
     int maxCadence;
@@ -1740,9 +1741,11 @@ static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
             pTrk->elevLoss += fabs(p2->rise);
         }
 
-        // Update the rolling cadence, heart rate, and power
-        // values used to compute the activity averages.
+        // Update the rolling cadence, grade, heart rate,
+        // power, and temp values used to compute the
+        // averages for the activity.
         pTrk->cadence += p2->cadence;
+        pTrk->grade += p2->grade;
         pTrk->heartRate += p2->heartRate;
         pTrk->power += p2->power;
         pTrk->temp += p2->ambTemp;
@@ -1923,27 +1926,34 @@ static void printSummary(GpsTrk *pTrk, CmdArgs *pArgs)
         p = pTrk->minGradeTrkPt;
         fprintf(pArgs->outFile, "       minGrade: %.2lf%% @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, run = %.3lf m, rise = %.3lf m\n",
                 pTrk->minGrade, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance), p->run, p->rise);
+        fprintf(pArgs->outFile, "       avgGrade: %.2lf%%\n", (pTrk->grade / pTrk->numTrkPts));
     }
 
     if (pTrk->inMask & SD_CADENCE) {
         p = pTrk->maxCadenceTrkPt;
         fprintf(pArgs->outFile, "     maxCadence: %d rpm @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
                 pTrk->maxCadence, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
-        fprintf(pArgs->outFile, "     minCadence: %d rpm\n", pTrk->minCadence);
+        p = pTrk->minCadenceTrkPt;
+        fprintf(pArgs->outFile, "     minCadence: %d rpm @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->minCadence, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
         fprintf(pArgs->outFile, "     avgCadence: %d rpm\n", (pTrk->cadence / pTrk->numTrkPts));
     }
     if (pTrk->inMask & SD_HR) {
         p = pTrk->maxHeartRateTrkPt;
         fprintf(pArgs->outFile, "          maxHR: %d bpm @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
                 pTrk->maxHeartRate, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
-        fprintf(pArgs->outFile, "          minHR: %d bpm\n", pTrk->minHeartRate);
+        p = pTrk->minHeartRateTrkPt;
+        fprintf(pArgs->outFile, "          minHR: %d bpm @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->minHeartRate, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
         fprintf(pArgs->outFile, "          avgHR: %d bpm\n", (pTrk->heartRate / pTrk->numTrkPts));
     }
     if (pTrk->inMask & SD_POWER) {
         p = pTrk->maxPowerTrkPt;
         fprintf(pArgs->outFile, "       maxPower: %d watts @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
                 pTrk->maxPower, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
-        fprintf(pArgs->outFile, "       minPower: %d watts\n", pTrk->minPower);
+        p = pTrk->minPowerTrkPt;
+        fprintf(pArgs->outFile, "       minPower: %d watts @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->minPower, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
         fprintf(pArgs->outFile, "       avgPower: %d watts\n", (pTrk->power / pTrk->numTrkPts));
     }
     if (pTrk->inMask & SD_ATEMP) {
