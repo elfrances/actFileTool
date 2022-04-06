@@ -34,7 +34,7 @@
 
 // Program version info
 static const int progVerMajor = 1;
-static const int progVerMinor = 2;
+static const int progVerMinor = 3;
 
 // Compile-time build info
 static const char *buildInfo = "built on " __DATE__ " at " __TIME__;
@@ -148,6 +148,7 @@ typedef struct GpsTrk {
     int maxPower;
     int maxTemp;
     double maxDeltaD;
+    double maxDeltaG;
     double maxDeltaT;
     double maxGrade;
     double maxSpeed;
@@ -161,8 +162,9 @@ typedef struct GpsTrk {
     double minSpeed;
 
     const TrkPt *maxCadenceTrkPt;   // TrkPt with max cadence value
-    const TrkPt *maxDeltaDTrkPt;    // TrkPt with max distance
-    const TrkPt *maxDeltaTTrkPt;    // TrkPt with max time interval
+    const TrkPt *maxDeltaDTrkPt;    // TrkPt with max dist diff
+    const TrkPt *maxDeltaGTrkPt;    // TrkPt with max grade diff
+    const TrkPt *maxDeltaTTrkPt;    // TrkPt with max time diff
     const TrkPt *maxGradeTrkPt;     // TrkPt with max grade value
     const TrkPt *maxHeartRateTrkPt; // TrkPt with max HR value
     const TrkPt *maxPowerTrkPt;     // TrkPt with max power value
@@ -170,8 +172,8 @@ typedef struct GpsTrk {
     const TrkPt *maxTempTrkPt;      // TrkPt with max temp value
 
     const TrkPt *minCadenceTrkPt;   // TrkPt with min cadence value
-    const TrkPt *minDeltaDTrkPt;    // TrkPt with min distance
-    const TrkPt *minDeltaTTrkPt;    // TrkPt with min time interval
+    const TrkPt *minDeltaDTrkPt;    // TrkPt with min dist diff
+    const TrkPt *minDeltaTTrkPt;    // TrkPt with min time diff
     const TrkPt *minGradeTrkPt;     // TrkPt with min grade value
     const TrkPt *minHeartRateTrkPt; // TrkPt with min HR value
     const TrkPt *minPowerTrkPt;     // TrkPt with min power value
@@ -329,6 +331,9 @@ static const char *help =
         "        ments to the data.\n"
         "    --version\n"
         "        Show version information and exit.";
+
+static __inline__ double mToKm(double m) { return (m / 1000.0); }
+static __inline__ double mpsToKph(double mps) { return (mps * 3.6); }
 
 static void invalidArgument(const char *arg, const char *val)
 {
@@ -1550,8 +1555,14 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
         pTrk->time += p2->deltaT;
 
         // Compute the grade as "rise over run". Notice
-        // that the grade value may get updated later...
-        p2->grade = (p2->rise * 100.0) / p2->run;   // in [%]
+        // that the grade value may get updated later.
+        // Guard against points with run=0, which can
+        // happen when using the "--verbose" option...
+        if (p2->run != 0.0) {
+            p2->grade = (p2->rise * 100.0) / p2->run;   // in [%]
+        } else {
+            p2->grade = p1->grade;  // carry over the previous grade value
+        }
 
         // Compute the bearing
         p2->bearing = compBearing(p1, p2);
@@ -1626,9 +1637,16 @@ static void compSma(GpsTrk *pTrk, TrkPt *p, SmaMetric smaMetric, int smaWindow)
     if (smaVal != value) {
         if (smaMetric == elevation) {
             // Recompute the grade using the adjusted
-            // elevation value.
-            p->rise = p->elevation - TAILQ_PREV(p, TrkPtList, tqEntry)->elevation;
-            p->grade = (p->rise * 100.0) / p->run;  // in [%]
+            // elevation value. Guard against points
+            // with run=0, which can happen when using
+            // the --verbose option...
+            TrkPt *prev = TAILQ_PREV(p, TrkPtList, tqEntry);
+            if (p->run != 0.0) {
+                p->rise = p->elevation - prev->elevation;
+                p->grade = (p->rise * 100.0) / p->run;  // in [%]
+            } else {
+                p->grade = prev->grade; // carry over the previous grade value
+            }
         } else if (smaMetric == grade) {
             // Flag that this point had its grade adjusted
             p->adjGrade = true;
@@ -1684,6 +1702,7 @@ static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
 {
     TrkPt *p1 = TAILQ_FIRST(&pTrk->trkPtList);  // previous TrkPt
     TrkPt *p2 = TAILQ_NEXT(p1, tqEntry);    // current TrkPt
+    double deltaG;
 
     while (p2 != NULL) {
         if (pointWithinRange(pArgs, p2)) {
@@ -1728,6 +1747,12 @@ static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
         pTrk->power += p2->power;
         pTrk->temp += p2->ambTemp;
 
+        deltaG = fabs(p2->grade - p1->grade);
+        if (deltaG > pTrk->maxDeltaG) {
+            pTrk->maxDeltaG = deltaG;
+            pTrk->maxDeltaGTrkPt = p2;
+        }
+
         p2 = nxtTrkPt(&p1, p2);
     }
 
@@ -1763,6 +1788,7 @@ static int compDataPhase3(GpsTrk *pTrk, CmdArgs *pArgs)
                 pTrk->minCadenceTrkPt = p2;
             }
         }
+
         if (pTrk->inMask & SD_HR) {
             if (p2->heartRate > pTrk->maxHeartRate) {
                  pTrk->maxHeartRate = p2->heartRate;
@@ -1772,6 +1798,7 @@ static int compDataPhase3(GpsTrk *pTrk, CmdArgs *pArgs)
                 pTrk->minHeartRateTrkPt = p2;
             }
         }
+
         if (pTrk->inMask & SD_POWER) {
             if (p2->power > pTrk->maxPower) {
                  pTrk->maxPower = p2->power;
@@ -1781,6 +1808,7 @@ static int compDataPhase3(GpsTrk *pTrk, CmdArgs *pArgs)
                 pTrk->minPowerTrkPt = p2;
             }
         }
+
         if (p2->speed > pTrk->maxSpeed) {
              pTrk->maxSpeed = p2->speed;
              pTrk->maxSpeedTrkPt = p2;
@@ -1788,6 +1816,7 @@ static int compDataPhase3(GpsTrk *pTrk, CmdArgs *pArgs)
             pTrk->minSpeed = p2->speed;
             pTrk->minSpeedTrkPt = p2;
         }
+
         if (pTrk->inMask & SD_ATEMP) {
             if (p2->ambTemp > pTrk->maxTemp) {
                  pTrk->maxTemp = p2->ambTemp;
@@ -1797,6 +1826,7 @@ static int compDataPhase3(GpsTrk *pTrk, CmdArgs *pArgs)
                 pTrk->minTempTrkPt = p2;
             }
         }
+
         if (p2->grade > pTrk->maxGrade) {
              pTrk->maxGrade = p2->grade;
              pTrk->maxGradeTrkPt = p2;
@@ -1876,65 +1906,65 @@ static void printSummary(GpsTrk *pTrk, CmdArgs *pArgs)
     fprintf(pArgs->outFile, "       elevLoss: %.10lf m\n", pTrk->elevLoss);
 
     // Max/Min/Avg values
+    {
+        p = pTrk->maxSpeedTrkPt;
+        fprintf(pArgs->outFile, "       maxSpeed: %.3lf km/h @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, deltaD = %.3lf m, deltaT = %.3lf s\n",
+                mpsToKph(pTrk->maxSpeed), p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance), p->dist, p->deltaT);
+        p = pTrk->minSpeedTrkPt;
+        fprintf(pArgs->outFile, "       minSpeed: %.3lf km/h @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, deltaD = %.3lf m, deltaT = %.3lf s\n",
+                mpsToKph(pTrk->minSpeed), p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance), p->dist, p->deltaT);
+        fprintf(pArgs->outFile, "       avgSpeed: %.3lf km/h\n", mpsToKph(pTrk->distance / pTrk->time));
+    }
+
+    {
+        p = pTrk->maxGradeTrkPt;
+        fprintf(pArgs->outFile, "       maxGrade: %.2lf%% @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, run = %.3lf m, rise = %.3lf m\n",
+                pTrk->maxGrade, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance), p->run, p->rise);
+        p = pTrk->minGradeTrkPt;
+        fprintf(pArgs->outFile, "       minGrade: %.2lf%% @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, run = %.3lf m, rise = %.3lf m\n",
+                pTrk->minGrade, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance), p->run, p->rise);
+    }
+
     if (pTrk->inMask & SD_CADENCE) {
-        fprintf(pArgs->outFile, "     maxCadence: %d rpm\n", pTrk->maxCadence);
+        p = pTrk->maxCadenceTrkPt;
+        fprintf(pArgs->outFile, "     maxCadence: %d rpm @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->maxCadence, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
         fprintf(pArgs->outFile, "     minCadence: %d rpm\n", pTrk->minCadence);
         fprintf(pArgs->outFile, "     avgCadence: %d rpm\n", (pTrk->cadence / pTrk->numTrkPts));
     }
     if (pTrk->inMask & SD_HR) {
-        fprintf(pArgs->outFile, "          maxHR: %d bpm\n", pTrk->maxHeartRate);
+        p = pTrk->maxHeartRateTrkPt;
+        fprintf(pArgs->outFile, "          maxHR: %d bpm @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->maxHeartRate, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
         fprintf(pArgs->outFile, "          minHR: %d bpm\n", pTrk->minHeartRate);
         fprintf(pArgs->outFile, "          avgHR: %d bpm\n", (pTrk->heartRate / pTrk->numTrkPts));
     }
     if (pTrk->inMask & SD_POWER) {
-        fprintf(pArgs->outFile, "       maxPower: %d watts\n", pTrk->maxPower);
+        p = pTrk->maxPowerTrkPt;
+        fprintf(pArgs->outFile, "       maxPower: %d watts @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->maxPower, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
         fprintf(pArgs->outFile, "       minPower: %d watts\n", pTrk->minPower);
         fprintf(pArgs->outFile, "       avgPower: %d watts\n", (pTrk->power / pTrk->numTrkPts));
     }
-    fprintf(pArgs->outFile, "       maxSpeed: %.3lf km/h\n", (pTrk->maxSpeed * 3.6));
-    fprintf(pArgs->outFile, "       minSpeed: %.3lf km/h\n", (pTrk->minSpeed * 3.6));
-    fprintf(pArgs->outFile, "       avgSpeed: %.3lf km/h\n", ((pTrk->distance * 3.6) / pTrk->time));
     if (pTrk->inMask & SD_ATEMP) {
-        fprintf(pArgs->outFile, "        maxTemp: %d C\n", pTrk->maxTemp);
+        p = pTrk->maxTempTrkPt;
+        fprintf(pArgs->outFile, "        maxTemp: %d C @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->maxTemp, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
         fprintf(pArgs->outFile, "        minTemp: %d C\n", pTrk->minTemp);
         fprintf(pArgs->outFile, "        avgTemp: %d C\n", (pTrk->temp / pTrk->numTrkPts));
     }
 
     if ((p = pTrk->maxDeltaDTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "      maxDeltaD: %.3lf m at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
-                pTrk->maxDeltaD, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
+        fprintf(pArgs->outFile, "      maxDeltaD: %.3lf m @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->maxDeltaD, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
     }
     if ((p = pTrk->maxDeltaTTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "      maxDeltaT: %.3lf sec at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
-                pTrk->maxDeltaT, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
+        fprintf(pArgs->outFile, "      maxDeltaT: %.3lf sec @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->maxDeltaT, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
     }
-    if ((p = pTrk->maxCadenceTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "     maxCadence: %d rpm at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
-                pTrk->maxCadence, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
-    }
-    if ((p = pTrk->maxGradeTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "       maxGrade: %.2lf%% at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, run = %.3lf m, rise = %.3lf m\n",
-                pTrk->maxGrade, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0), p->run, p->rise);
-    }
-    if ((p = pTrk->minGradeTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "       minGrade: %.2lf%% at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, run = %.3lf m, rise = %.3lf m\n",
-                pTrk->minGrade, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0), p->run, p->rise);
-    }
-    if ((p = pTrk->maxHeartRateTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "          maxHR: %d bpm at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
-                pTrk->maxHeartRate, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
-    }
-    if ((p = pTrk->maxPowerTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "       maxPower: %d watts at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
-                pTrk->maxPower, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
-    }
-    if ((p = pTrk->maxSpeedTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "       maxSpeed: %.10lf km/h at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, deltaD = %.3lf m, deltaT = %.3lf s\n",
-                (pTrk->maxSpeed * 3.6), p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0), p->dist, p->deltaT);
-    }
-    if ((p = pTrk->maxTempTrkPt) != NULL) {
-        fprintf(pArgs->outFile, "       maxTemp: %d C at TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
-                pTrk->maxTemp, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), (p->distance / 1000.0));
+    if ((p = pTrk->maxDeltaGTrkPt) != NULL) {
+        fprintf(pArgs->outFile, "      maxDeltaG: %.2lf%% @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->maxDeltaG, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
     }
 }
 
@@ -1944,9 +1974,10 @@ static void printCsvFmt(GpsTrk *pTrk, CmdArgs *pArgs)
 
     // Print column banner line
     fprintf(pArgs->outFile, "<inFile>,<line#>,<trkpt>,<time>,<lat>,<lon>,<ele>,");
-    fprintf(pArgs->outFile, "<power>,<atemp>,<cadence>,<hr>,<deltaT>,<run>,<rise>,<dist>,<distance>,<speed>,<grade>\n");
+    fprintf(pArgs->outFile, "<power>,<atemp>,<cadence>,<hr>,<deltaT>,<run>,<rise>,<dist>,<distance>,<speed>,<grade>,<deltaG>\n");
 
     TAILQ_FOREACH(p, &pTrk->trkPtList, tqEntry) {
+        TrkPt *prev = TAILQ_PREV(p, TrkPtList, tqEntry);
         double timeStamp = (p->adjTime != 0.0) ? p->adjTime : p->timestamp;    // use the adjusted timestamp if there is one
 
         // Account for the time shift due to SMA
@@ -1961,7 +1992,7 @@ static void printCsvFmt(GpsTrk *pTrk, CmdArgs *pArgs)
                 p->latitude,                    // <lat>
                 p->longitude,                   // <lon>
                 p->elevation);                  // <ele>
-        fprintf(pArgs->outFile, "%d,%d,%d,%d,%.10lf,%.3lf,%.10lf,%.10lf,%.10lf,%.10lf,%.2lf\n",
+        fprintf(pArgs->outFile, "%d,%d,%d,%d,%.10lf,%.3lf,%.10lf,%.10lf,%.10lf,%.10lf,%.2lf,%.2lf\n",
                 p->power,                       // <power>
                 p->ambTemp,                     // <atemp>
                 p->cadence,                     // <cadence>
@@ -1970,9 +2001,10 @@ static void printCsvFmt(GpsTrk *pTrk, CmdArgs *pArgs)
                 p->run,                         // <run>
                 p->rise,                        // <rise>
                 p->dist,                        // <dist>
-                (p->distance / 1000.0),         // <distance> [km]
-                (p->speed * 3.6),               // <speed> [km/h]
-                p->grade);                      // <grade> [%]
+                mToKm(p->distance),             // <distance> [km]
+                mpsToKph(p->speed),             // <speed> [km/h]
+                p->grade,                       // <grade> [%]
+                (prev != NULL) ? fabs(p->grade - prev->grade) : 0);
     }
 }
 
@@ -2114,7 +2146,7 @@ static void printShizFmt(GpsTrk *pTrk, CmdArgs *pArgs)
     // Duration is in hh:mm:ss, distance is in kilometers,
     // elevation is in meters, and speed is in km/h.
     fprintf(pArgs->outFile, "{\"extra\":{\"duration\":\"%s\",\"distance\":%.5lf,\"toughness\":\"%u\",\"elevation_gain\":%u,\"date_processed\":\"%s\",\"speed_filter\":\"5\",\"elevation_filter\":\"4\",\"grade_filter\":\"4\",\"timeshift\":\"-4\"},\"gpx\":{\"trk\":{\"trkseg\":{\"trkpt\":[",
-            fmtTimeStamp(pTrk->time, hms), (pTrk->distance / 1000.0), 123, (unsigned) pTrk->elevGain, dateBuf);
+            fmtTimeStamp(pTrk->time, hms), mToKm(pTrk->distance), 123, (unsigned) pTrk->elevGain, dateBuf);
 
     TAILQ_FOREACH(p, &pTrk->trkPtList, tqEntry) {
         // The first "trkpt" is included in the header line,
@@ -2126,7 +2158,7 @@ static void printShizFmt(GpsTrk *pTrk, CmdArgs *pArgs)
             continue;
 
         fprintf(pArgs->outFile, "{\"-lon\":\"%.7lf\",\"-lat\":\"%.7lf\",\"speed\":\"%.1lf\",\"ele\":\"%.3lf\",\"distance\":\"%.5lf\",\"bearing\":\"%.2lf\",\"slope\":\"%.1lf\",\"time\":\"%s\",\"index\":%u,\"cadence\":%u,\"p\":%u}%s",
-                p->longitude, p->latitude, (p->speed * 3.6), p->elevation, (p->distance / 1000.0), p->bearing, p->grade, fmtTimeStamp((p->timestamp - baseTime), hms), p->index, p->cadence, 0, (TAILQ_NEXT(p, tqEntry) != NULL) ? ",\n" : "");
+                p->longitude, p->latitude, mpsToKph(p->speed), p->elevation, mToKm(p->distance), p->bearing, p->grade, fmtTimeStamp((p->timestamp - baseTime), hms), p->index, p->cadence, 0, (TAILQ_NEXT(p, tqEntry) != NULL) ? ",\n" : "");
     }
 
     fprintf(pArgs->outFile, "]}},\"seg\":[]}}\n");
