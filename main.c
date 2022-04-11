@@ -9,6 +9,34 @@
  *                       in a GPX or TCX file. See the README.md file for
  *                       more details.
  *
+ *   Consecutive points in the track define a pseudo-triangle, where the
+ *   base is the horizontal distance "run", the height is the vertical
+ *   distance "rise", and the hypotenuse is the actual distance traveled
+ *   between the two points. The figure is not an exact triangle, because
+ *   the run is not a straight line, but the great-circle distance over
+ *   the Earth's surface. But when the two points are close together, we
+ *   can assume the run is a straight line, and hence we are dealing with
+ *   a rectangular triangle.
+ *
+ *                                 + P2
+ *                                /|
+ *                               / |
+ *                         dist /  | rise
+ *                             /   |
+ *                            /    |
+ *                        P1 +-----+
+ *                             run
+ *
+ *   Assuming the angle at P1, between dist and run, is "theta", then the
+ *   following equations describe the relationship between the various
+ *   values:
+ *
+ *   slope = rise / run = tan(theta)
+ *
+ *   dist^2 = run^2 + rise^2
+ *
+ *   dist = speed * (t2 - t1)
+ *
  *=========================================================================
  *
  *                  Copyright (c) 2021 Marcelo Mourier
@@ -34,7 +62,7 @@
 
 // Program version info
 static const int progVerMajor = 1;
-static const int progVerMinor = 4;
+static const int progVerMinor = 5;
 
 // Compile-time build info
 static const char *buildInfo = "built on " __DATE__ " at " __TIME__;
@@ -151,6 +179,7 @@ typedef struct GpsTrk {
     double maxDeltaD;
     double maxDeltaG;
     double maxDeltaT;
+    double maxElev;
     double maxGrade;
     double maxSpeed;
 
@@ -159,6 +188,7 @@ typedef struct GpsTrk {
     int minHeartRate;
     int minPower;
     int minTemp;
+    double minElev;
     double minGrade;
     double minSpeed;
 
@@ -166,6 +196,7 @@ typedef struct GpsTrk {
     const TrkPt *maxDeltaDTrkPt;    // TrkPt with max dist diff
     const TrkPt *maxDeltaGTrkPt;    // TrkPt with max grade diff
     const TrkPt *maxDeltaTTrkPt;    // TrkPt with max time diff
+    const TrkPt *maxElevTrkPt;      // TrkPt with max elevation value
     const TrkPt *maxGradeTrkPt;     // TrkPt with max grade value
     const TrkPt *maxHeartRateTrkPt; // TrkPt with max HR value
     const TrkPt *maxPowerTrkPt;     // TrkPt with max power value
@@ -175,6 +206,7 @@ typedef struct GpsTrk {
     const TrkPt *minCadenceTrkPt;   // TrkPt with min cadence value
     const TrkPt *minDeltaDTrkPt;    // TrkPt with min dist diff
     const TrkPt *minDeltaTTrkPt;    // TrkPt with min time diff
+    const TrkPt *minElevTrkPt;      // TrkPt with max elevation value
     const TrkPt *minGradeTrkPt;     // TrkPt with min grade value
     const TrkPt *minHeartRateTrkPt; // TrkPt with min HR value
     const TrkPt *minPowerTrkPt;     // TrkPt with min power value
@@ -209,37 +241,45 @@ typedef enum TsFmt {
     hms = 2     // hh:mm:ss
 } TsFmt;
 
-// Metric used for the SMA
-typedef enum SmaMetric {
+// Moving Average method
+typedef enum XmaMethod {
+    simple = 1,         // SMA
+    weighed = 2         // WMA
+} XmaMethod;
+
+// Metric used for the SMA/WMA
+typedef enum XmaMetric {
     elevation = 1,      // elevation
     grade = 2,          // grade
     power = 3           // power
-} SmaMetric;
+} XmaMetric;
 
 typedef struct CmdArgs {
-    int argc;           // number of arguments
-    char **argv;        // list of arguments
-    const char *inFile; // input file name
+    int argc;               // number of arguments
+    char **argv;            // list of arguments
+    const char *inFile;     // input file name
 
-    ActType actType;    // activity type for the output file
-    int closeGap;       // close the time gap at the specified track point
-    double maxGrade;    // max grade allowed (in %)
-    double minGrade;    // min grade allowed (in %)
-    const char *name;   // <name> tag
-    FILE *outFile;      // output file
-    OutFmt outFmt;      // format of the output data (csv, gpx)
-    int outMask;        // bitmask of optional metrics to be included in the output
-    Bool quiet;         // don't print any warning messages
-    int rangeFrom;      // start point (inclusive)
-    int rangeTo;        // end point (inclusive)
-    TsFmt relTime;      // show relative timestamps in the specified format
-    double setSpeed;    // speed to use to generate timestamps (in m/s)
-    SmaMetric smaMetric;// metric to use for the SMA
-    int smaWindow;      // size of the moving average window
-    double startTime;   // start time for the activity
-    Bool summary;       // show data summary
-    Bool trim;          // trim points
-    Bool verbatim;      // no data adjustments
+    ActType actType;        // activity type for the output file
+    int closeGap;           // close the time gap at the specified track point
+    double maxGrade;        // max grade allowed (in %)
+    double maxGradeChange;  // max grade change allowed between points (in %)
+    double minGrade;        // min grade allowed (in %)
+    const char *name;       // <name> tag
+    FILE *outFile;          // output file
+    OutFmt outFmt;          // format of the output data (csv, gpx)
+    int outMask;            // bitmask of optional metrics to be included in the output
+    Bool quiet;             // don't print any warning messages
+    int rangeFrom;          // start point (inclusive)
+    int rangeTo;            // end point (inclusive)
+    TsFmt relTime;          // show relative timestamps in the specified format
+    double setSpeed;        // speed to use to generate timestamps (in m/s)
+    XmaMethod xmaMethod;    // method to compute the Moving Average
+    XmaMetric xmaMetric;    // metric to use for the SMA/WMA
+    int xmaWindow;          // size of the SMA/WMA window
+    double startTime;       // start time for the activity
+    Bool summary;           // show data summary
+    Bool trim;              // trim points
+    Bool verbatim;          // no data adjustments
 } CmdArgs;
 
 static const char *xmlHeader = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
@@ -281,6 +321,9 @@ static const char *help =
         "    --max-grade <value>\n"
         "        Limit the maximum grade to the specified value. The elevation\n"
         "        values are adjusted accordingly.\n"
+        "    --max-grade-change <value>\n"
+        "        Limit the maximum change in grade between points to the specified\n"
+        "        value. The elevation values are adjusted accordingly.\n"
         "    --min-grade <value>\n"
         "        Limit the minimum grade to the specified value. The elevation\n"
         "        values are adjusted accordingly.\n"
@@ -311,12 +354,6 @@ static const char *help =
         "    --set-speed <avg-speed>\n"
         "        Use the specified average speed value (in km/h) to generate missing\n"
         "        timestamps, or to replace the existing timestamps, in the input file.\n"
-        "    --sma-metric {elevation|grade|power}\n"
-        "        Specifies the metric to be smoothed out by the Simple Moving Average.\n"
-        "    --sma-window <size>\n"
-        "        Size of the window used to compute the Simple Moving Average\n"
-        "        of the selected values, in order to smooth them out. It must be\n"
-        "        an odd value.\n"
         "    --start-time <time>\n"
         "        Start time for the activity (in UTC time). The timestamp of each\n"
         "        point is adjusted accordingly. Format is: 2018-01-22T10:01:10Z.\n"
@@ -331,7 +368,15 @@ static const char *help =
         "        Process the input file(s) verbatim, without making any adjust-\n"
         "        ments to the data.\n"
         "    --version\n"
-        "        Show version information and exit.";
+        "        Show version information and exit.\n"
+        "    --xma-method {simple|weighed}\n"
+        "        Specifies the type of Moving Average to compute: SMA or WMA."
+        "    --xma-metric {elevation|grade|power}\n"
+        "        Specifies the metric to be smoothed out by the selected Moving\n"
+        "        Average method.\n"
+        "    --xma-window <size>\n"
+        "        Size of the window used to compute the selected Moving Average.\n"
+        "        It must be an odd value.\n";
 
 static __inline__ double mToKm(double m) { return (m / 1000.0); }
 static __inline__ double mpsToKph(double mps) { return (mps * 3.6); }
@@ -350,8 +395,15 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
         return -1;
     }
 
+    // By default send output to stdout
+    pArgs->outFile = stdout;
+
     // By default include all optional metrics in the output
     pArgs->outMask = SD_ALL;
+
+    // By default run the SMA over the elevation value
+    pArgs->xmaMethod = simple;
+    pArgs->xmaMetric = elevation;
 
     for (n = 1, numArgs = argc -1; n <= numArgs; n++) {
         const char *arg;
@@ -389,6 +441,12 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
         } else if (strcmp(arg, "--max-grade") == 0) {
             val = argv[++n];
             if (sscanf(val, "%le", &pArgs->maxGrade) != 1) {
+                invalidArgument(arg, val);
+                return -1;
+            }
+        } else if (strcmp(arg, "--max-grade-change") == 0) {
+            val = argv[++n];
+            if (sscanf(val, "%le", &pArgs->maxGradeChange) != 1) {
                 invalidArgument(arg, val);
                 return -1;
             }
@@ -461,25 +519,6 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
                 return -1;
             }
             pArgs->setSpeed = (pArgs->setSpeed / 3.6);  // convert from km/h to m/s
-        } else if (strcmp(arg, "--sma-metric") == 0) {
-            val = argv[++n];
-            if (strcmp(val, "elevation") == 0) {
-                pArgs->smaMetric = elevation;
-            } else if (strcmp(val, "grade") == 0) {
-                pArgs->smaMetric = grade;
-            } else if (strcmp(val, "power") == 0) {
-                pArgs->smaMetric = power;
-            } else {
-                invalidArgument(arg, val);
-                return -1;
-            }
-        } else if (strcmp(arg, "--sma-window") == 0) {
-            val = argv[++n];
-            if ((sscanf(val, "%d", &pArgs->smaWindow) != 1) ||
-                ((pArgs->smaWindow % 2) == 0)) {
-                invalidArgument(arg, val);
-                return -1;
-            }
         } else if (strcmp(arg, "--start-time") == 0) {
             val = argv[++n];
             struct tm brkDwnTime = {0};
@@ -503,6 +542,35 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
         } else if (strcmp(arg, "--version") == 0) {
             fprintf(stdout, "Version %d.%d %s\n", progVerMajor, progVerMinor, buildInfo);
             exit(0);
+        } else if (strcmp(arg, "--xma-method") == 0) {
+            val = argv[++n];
+            if (strcmp(val, "simple") == 0) {
+                pArgs->xmaMethod = simple;
+            } else if (strcmp(val, "weighed") == 0) {
+                pArgs->xmaMethod = weighed;
+            } else {
+                invalidArgument(arg, val);
+                return -1;
+            }
+        } else if (strcmp(arg, "--xma-metric") == 0) {
+            val = argv[++n];
+            if (strcmp(val, "elevation") == 0) {
+                pArgs->xmaMetric = elevation;
+            } else if (strcmp(val, "grade") == 0) {
+                pArgs->xmaMetric = grade;
+            } else if (strcmp(val, "power") == 0) {
+                pArgs->xmaMetric = power;
+            } else {
+                invalidArgument(arg, val);
+                return -1;
+            }
+        } else if (strcmp(arg, "--xma-window") == 0) {
+            val = argv[++n];
+            if ((sscanf(val, "%d", &pArgs->xmaWindow) != 1) ||
+                ((pArgs->xmaWindow % 2) == 0)) {
+                invalidArgument(arg, val);
+                return -1;
+            }
         } else if (strncmp(arg, "--", 2) == 0) {
             fprintf(stderr, "Invalid option: %s\nUse --help for the list of supported options.\n", arg);
             return -1;
@@ -514,16 +582,6 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
 
     pArgs->argc = argc;
     pArgs->argv = argv;
-
-    if (pArgs->outFile == NULL) {
-        // By default send output to stdout
-        pArgs->outFile = stdout;
-    }
-
-    if ((pArgs->smaWindow != 0) && (pArgs->smaMetric == 0)) {
-        // By default run the SMA over the elevation value
-        pArgs->smaMetric = elevation;
-    }
 
     return n;
 }
@@ -1450,6 +1508,12 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
                     p2 = remTrkPt(pTrk, p2);
                     pTrk->numDiscTrkPts++;
                 } else {
+                    // Carry over the data from the previous point
+                    p2->bearing = p1->bearing;
+                    p2->distance = p1->distance;
+                    p2->grade = p1->grade;
+                    p2->speed = p1->speed;
+
                     // Move on to the next point
                     p2 = nxtTrkPt(&p1, p2);
                 }
@@ -1462,6 +1526,11 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
                 p2->run = sqrt((p2->dist * p2->dist) - (absRise * absRise));
             } else {
                 // Bogus data?
+                if (!pArgs->quiet) {
+                    fprintf(stderr, "WARNING: TrkPt #%d has inconsistent dist=%.3lf and rise=%.3lf values !\n",
+                            p2->index, p2->dist, absRise);
+                    printTrkPt(p2);
+                }
                 p2->run = p2->dist;
             }
         } else {
@@ -1480,6 +1549,12 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
                     p2 = remTrkPt(pTrk, p2);
                     pTrk->numDiscTrkPts++;
                 } else {
+                    // Carry over the data from the previous point
+                    p2->bearing = p1->bearing;
+                    p2->distance = p1->distance;
+                    p2->grade = p1->grade;
+                    p2->speed = p1->speed;
+
                     // Move on to the next point
                     p2 = nxtTrkPt(&p1, p2);
                 }
@@ -1489,7 +1564,7 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
             // Compute the actual distance traveled between
             // the two points.
             if (absRise == 0.0) {
-                // Riding on the flats, dist equals run...
+                // When riding on the flats, dist equals run!
                 p2->dist = p2->run;
             } else {
                 // Use Pythagoras's Theorem to compute the
@@ -1577,66 +1652,81 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
     return 0;
 }
 
-static double smaGetVal(TrkPt *p, SmaMetric smaMetric)
+static double xmaGetVal(const TrkPt *p, XmaMetric xmaMetric)
 {
-    if (smaMetric == elevation) {
+    if (xmaMetric == elevation) {
         return (double) p->elevation;
-    } else if (smaMetric == grade) {
+    } else if (xmaMetric == grade) {
         return (double) p->grade;
     } else {
         return (double) p->power;
     }
 }
 
-static double smaSetVal(TrkPt *p, SmaMetric smaMetric, double value)
+static Bool xmaSetVal(TrkPt *p, XmaMetric xmaMetric, double value)
 {
-    if (smaMetric == elevation) {
+    double oldVal;
+
+    if (xmaMetric == elevation) {
+        oldVal = p->elevation;
         p->elevation = value;
-    } else if (smaMetric == grade) {
+    } else if (xmaMetric == grade) {
+        oldVal = p->grade;
         p->grade = value;
     } else {
+        oldVal = p->power;
         p->power = (int) value;
     }
 
-    return value;
+    return (value != oldVal) ? true : false;
 }
 
-// Compute the Simple Moving Average (SMA) of the specified
-// metric at the given point. The SMA uses a window size of N
+// Compute the Moving Average (SMA/WMA) of the specified
+// metric at the given point, using a window size of N
 // points, where N is an odd value. The average is computed
-// using the (N-1) values before the point, and the value of
-// the given point.
-static void compSma(GpsTrk *pTrk, TrkPt *p, SmaMetric smaMetric, int smaWindow)
+// using the (N-1)/2 values before the point, the given point,
+// and the (N-1)/2 values after the point.
+static void compMovAvg(GpsTrk *pTrk, TrkPt *p, XmaMethod xmaMethod, XmaMetric xmaMetric, int xmaWindow)
 {
     int i;
-    int n = (smaWindow - 1);
-    int numPoints = 0;
+    int n = (xmaWindow - 1) / 2;    // number of points to the L/R of the given point
+    int weight = 1; // SMA
+    int denom = 0;
     double summ = 0.0;
-    double value = smaGetVal(p, smaMetric);
-    double smaVal;
+    double xmaVal;
     TrkPt *tp;
 
     // Points before the given point
     for (i = 0, tp = TAILQ_PREV(p, TrkPtList, tqEntry); (i < n) && (tp != NULL); i++, tp = TAILQ_PREV(tp, TrkPtList, tqEntry)) {
-        summ += smaGetVal(tp, smaMetric);
-        numPoints++;
+        if (xmaMethod == weighed)
+            weight = (n - i);
+        summ += (xmaGetVal(tp, xmaMetric) * weight);
+        denom += weight;
     }
 
     // The given point
-    summ += value;
-    numPoints++;
+    if (xmaMethod == weighed)
+        weight = (n + 1);
+    summ += (xmaGetVal(p, xmaMetric) * weight);
+    denom += weight;
 
-    // SMA value
-    smaVal = summ / numPoints;
+    // Points after the given point
+    for (i = 0, tp = TAILQ_NEXT(p, tqEntry); (i < n) && (tp != NULL); i++, tp = TAILQ_NEXT(tp, tqEntry)) {
+        if (xmaMethod == weighed)
+            weight = (n - i);
+        summ += (xmaGetVal(tp, xmaMetric) * weight);
+        denom += weight;
+    }
 
-    //fprintf(stderr, "%s: index=%d metric=%d before=%.3lf summ=%.3lf pts=%d after=%.3lf\n", __func__, p->index, smaMetric, value, summ, numPoints, smaVal);
+    // SMA/WMA value
+    xmaVal = summ / denom;
+
+    //fprintf(stderr, "%s: index=%d metric=%d before=%.3lf summ=%.3lf pts=%d after=%.3lf\n", __func__, p->index, xmaMetric, xmaGetVal(p, xmaMetric), summ, denom, xmaVal);
 
     // Override the original value with the
-    // computed SMA value.
-    smaSetVal(p, smaMetric, smaVal);
-
-    if (smaVal != value) {
-        if (smaMetric == elevation) {
+    // computed SMA/WMA value.
+    if (xmaSetVal(p, xmaMetric, xmaVal)) {
+        if (xmaMetric == elevation) {
             // Recompute the grade using the adjusted
             // elevation value. Guard against points
             // with run=0, which can happen when using
@@ -1648,7 +1738,7 @@ static void compSma(GpsTrk *pTrk, TrkPt *p, SmaMetric smaMetric, int smaWindow)
             } else {
                 p->grade = prev->grade; // carry over the previous grade value
             }
-        } else if (smaMetric == grade) {
+        } else if (xmaMetric == grade) {
             // Flag that this point had its grade adjusted
             p->adjGrade = true;
         }
@@ -1699,6 +1789,24 @@ static void adjMinGrade(GpsTrk *pTrk, CmdArgs *pArgs, TrkPt *p1, TrkPt *p2)
     p2->adjGrade = true;
 }
 
+static void adjGradeChange(GpsTrk *pTrk, CmdArgs *pArgs, TrkPt *p1, TrkPt *p2)
+{
+    if (!pArgs->quiet) {
+        fprintf(stderr, "WARNING: TrkPt #%d (%s) has a grade change of %.2lf%% that is above the limit %.2lf%% !\n",
+                p2->index, fmtTrkPtIdx(p2), p2->grade, pArgs->maxGradeChange);
+    }
+
+    // Override original value with the max value
+    if (p2->grade > p1->grade) {
+        p2->grade = p1->grade + pArgs->maxGradeChange;
+    } else {
+        p2->grade = p1->grade - pArgs->maxGradeChange;
+    }
+
+    // Flag that this point had its grade adjusted
+    p2->adjGrade = true;
+}
+
 static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
 {
     TrkPt *p1 = TAILQ_FIRST(&pTrk->trkPtList);  // previous TrkPt
@@ -1708,8 +1816,8 @@ static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
     while (p2 != NULL) {
         if (pointWithinRange(pArgs, p2)) {
             // Do we need to smooth out any values?
-            if (pArgs->smaWindow != 0) {
-                compSma(pTrk, p2, pArgs->smaMetric, pArgs->smaWindow);
+            if (pArgs->xmaWindow != 0) {
+                compMovAvg(pTrk, p2, pArgs->xmaMethod, pArgs->xmaMetric, pArgs->xmaWindow);
             }
 
             // See if we need to limit the max grade values
@@ -1723,13 +1831,17 @@ static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
             }
         }
 
+        // See if we need to limit the max grade change
+        deltaG = fabs(p2->grade - p1->grade);
+        if ((pArgs->maxGradeChange != 0.0) && (deltaG > pArgs->maxGradeChange)) {
+            adjGradeChange(pTrk, pArgs, p1, p2);
+            deltaG = pArgs->maxGradeChange;
+        }
+
         // If necessary, correct the elevation value based
         // on the adjusted grade value. We need to adjust
-        // the value of delatE, while the value of deltaP
-        // remains invariant; i.e. the deltaP vector needs
-        // to rotate along an arc so that the tanget of the
-        // angle 'alpha' with the horizontal (run) results
-        // in the adjusted/desired grade value.
+        // the "rise" value, while the "run" value remains
+        // the same.
         if (p2->adjGrade) {
             adjElevation(pTrk, p1, p2);
         }
@@ -1750,7 +1862,6 @@ static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
         pTrk->power += p2->power;
         pTrk->temp += p2->ambTemp;
 
-        deltaG = fabs(p2->grade - p1->grade);
         if (deltaG > pTrk->maxDeltaG) {
             pTrk->maxDeltaG = deltaG;
             pTrk->maxDeltaGTrkPt = p2;
@@ -1777,6 +1888,8 @@ static int compDataPhase3(GpsTrk *pTrk, CmdArgs *pArgs)
     pTrk->maxSpeed = -999.9;
     pTrk->minTemp = +999.9;
     pTrk->maxTemp = -999.9;
+    pTrk->minElev = +99999.9;
+    pTrk->maxElev = -99999.9;
     pTrk->minGrade = +99.9;
     pTrk->maxGrade = -99.9;
 
@@ -1828,6 +1941,14 @@ static int compDataPhase3(GpsTrk *pTrk, CmdArgs *pArgs)
                 pTrk->minTemp = p2->ambTemp;
                 pTrk->minTempTrkPt = p2;
             }
+        }
+
+        if (p2->elevation > pTrk->maxElev) {
+             pTrk->maxElev = p2->elevation;
+             pTrk->maxElevTrkPt = p2;
+        } else if (p2->elevation < pTrk->minElev) {
+            pTrk->minElev = p2->elevation;
+            pTrk->minElevTrkPt = p2;
         }
 
         if (p2->grade > pTrk->maxGrade) {
@@ -1885,7 +2006,7 @@ static void printSummary(GpsTrk *pTrk, CmdArgs *pArgs)
         timeStamp += pTrk->timeOffset;
         dateAndTime = (time_t) timeStamp;  // sec only
         strftime(timeBuf, sizeof (timeBuf), "%Y-%m-%dT%H:%M:%S", gmtime_r(&dateAndTime, &brkDwnTime));
-        fprintf(pArgs->outFile, "  dateAndTime: %s\n", timeBuf);
+        fprintf(pArgs->outFile, "    dateAndTime: %s\n", timeBuf);
     }
 
     // Elapsed time
@@ -1904,30 +2025,39 @@ static void printSummary(GpsTrk *pTrk, CmdArgs *pArgs)
     time = pTrk->stoppedTime;
     fprintf(pArgs->outFile, "    stoppedTime: %s\n", fmtTimeStamp(time, hms));
 
-    fprintf(pArgs->outFile, "       distance: %.10lf km\n", (pTrk->distance / 1000.0));
-    fprintf(pArgs->outFile, "       elevGain: %.10lf m\n", pTrk->elevGain);
-    fprintf(pArgs->outFile, "       elevLoss: %.10lf m\n", pTrk->elevLoss);
+    fprintf(pArgs->outFile, "       distance: %.3lf km\n", mToKm(pTrk->distance));
+    fprintf(pArgs->outFile, "       elevGain: %.3lf m\n", pTrk->elevGain);
+    fprintf(pArgs->outFile, "       elevLoss: %.3lf m\n", pTrk->elevLoss);
 
     // Max/Min/Avg values
-    {
-        p = pTrk->maxSpeedTrkPt;
-        fprintf(pArgs->outFile, "       maxSpeed: %.3lf km/h @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, deltaD = %.3lf m, deltaT = %.3lf s\n",
-                mpsToKph(pTrk->maxSpeed), p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance), p->dist, p->deltaT);
-        p = pTrk->minSpeedTrkPt;
-        fprintf(pArgs->outFile, "       minSpeed: %.3lf km/h @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, deltaD = %.3lf m, deltaT = %.3lf s\n",
-                mpsToKph(pTrk->minSpeed), p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance), p->dist, p->deltaT);
-        fprintf(pArgs->outFile, "       avgSpeed: %.3lf km/h\n", mpsToKph(pTrk->distance / pTrk->time));
+    if ((p = pTrk->maxElevTrkPt) != NULL) {
+        fprintf(pArgs->outFile, "        maxElev: %.3lf m @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->maxElev, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
+    }
+    if ((p = pTrk->minElevTrkPt) != NULL) {
+        fprintf(pArgs->outFile, "        minElev: %.3lf m @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->minElev, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
     }
 
-    {
-        p = pTrk->maxGradeTrkPt;
+    if ((p = pTrk->maxSpeedTrkPt) != NULL) {
+        fprintf(pArgs->outFile, "       maxSpeed: %.3lf km/h @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, deltaD = %.3lf m, deltaT = %.3lf s\n",
+                mpsToKph(pTrk->maxSpeed), p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance), p->dist, p->deltaT);
+    }
+    if ((p = pTrk->minSpeedTrkPt) != NULL) {
+        fprintf(pArgs->outFile, "       minSpeed: %.3lf km/h @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, deltaD = %.3lf m, deltaT = %.3lf s\n",
+                mpsToKph(pTrk->minSpeed), p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance), p->dist, p->deltaT);
+    }
+    fprintf(pArgs->outFile, "       avgSpeed: %.3lf km/h\n", mpsToKph(pTrk->distance / pTrk->time));
+
+    if ((p = pTrk->maxGradeTrkPt) != NULL) {
         fprintf(pArgs->outFile, "       maxGrade: %.2lf%% @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, run = %.3lf m, rise = %.3lf m\n",
                 pTrk->maxGrade, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance), p->run, p->rise);
-        p = pTrk->minGradeTrkPt;
+    }
+    if ((p = pTrk->minGradeTrkPt) != NULL) {
         fprintf(pArgs->outFile, "       minGrade: %.2lf%% @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km, run = %.3lf m, rise = %.3lf m\n",
                 pTrk->minGrade, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance), p->run, p->rise);
-        fprintf(pArgs->outFile, "       avgGrade: %.2lf%%\n", (pTrk->grade / pTrk->numTrkPts));
     }
+    fprintf(pArgs->outFile, "       avgGrade: %.2lf%%\n", (pTrk->grade / pTrk->numTrkPts));
 
     if (pTrk->inMask & SD_CADENCE) {
         p = pTrk->maxCadenceTrkPt;
@@ -1960,7 +2090,9 @@ static void printSummary(GpsTrk *pTrk, CmdArgs *pArgs)
         p = pTrk->maxTempTrkPt;
         fprintf(pArgs->outFile, "        maxTemp: %d C @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
                 pTrk->maxTemp, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
-        fprintf(pArgs->outFile, "        minTemp: %d C\n", pTrk->minTemp);
+        p = pTrk->minTempTrkPt;
+        fprintf(pArgs->outFile, "        minTemp: %d C @ TrkPt #%d (%s) : time = %ld s, distance = %.3lf km\n",
+                pTrk->minTemp, p->index, fmtTrkPtIdx(p), (long) (p->timestamp - pTrk->baseTime), mToKm(p->distance));
         fprintf(pArgs->outFile, "        avgTemp: %d C\n", (pTrk->temp / pTrk->numTrkPts));
     }
 
@@ -1989,10 +2121,6 @@ static void printCsvFmt(GpsTrk *pTrk, CmdArgs *pArgs)
     TAILQ_FOREACH(p, &pTrk->trkPtList, tqEntry) {
         TrkPt *prev = TAILQ_PREV(p, TrkPtList, tqEntry);
         double timeStamp = (p->adjTime != 0.0) ? p->adjTime : p->timestamp;    // use the adjusted timestamp if there is one
-
-        // Account for the time shift due to SMA
-        if ((pArgs->smaWindow != 0) && (p->index < pArgs->smaWindow))
-            continue;
 
         fprintf(pArgs->outFile, "%s,%d,%d,%s,%.10lf,%.10lf,%.10lf,",
                 p->inFile,                      // <inFile>
@@ -2074,10 +2202,6 @@ static void printGpxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
         time_t time;
         int ms = 0;
 
-        // Account for the time shift due to SMA
-        if ((pArgs->smaWindow != 0) && (p->index < pArgs->smaWindow))
-            continue;
-
         timeStamp += pTrk->timeOffset;
         time = (time_t) timeStamp;  // sec only
         ms = (timeStamp - (double) time) * 1000.0;  // milliseconds
@@ -2143,6 +2267,11 @@ static const char *tcxActType(GpsTrk *pTrk, CmdArgs *pArgs)
 // Format the data according to the FulGaz ".shiz" format
 static void printShizFmt(GpsTrk *pTrk, CmdArgs *pArgs)
 {
+    const int toughness = 100;
+    const int speed_filter = 0;
+    const int elevation_filter = 0;
+    const int grade_filter = 0;
+    const int timeshift = 0;
     time_t now;
     struct tm brkDwnTime = {0};
     char dateBuf[64];
@@ -2155,17 +2284,13 @@ static void printShizFmt(GpsTrk *pTrk, CmdArgs *pArgs)
     // This format is valid as of FulGaz version 4.2.15
     // Duration is in hh:mm:ss, distance is in kilometers,
     // elevation is in meters, and speed is in km/h.
-    fprintf(pArgs->outFile, "{\"extra\":{\"duration\":\"%s\",\"distance\":%.5lf,\"toughness\":\"%u\",\"elevation_gain\":%u,\"date_processed\":\"%s\",\"speed_filter\":\"5\",\"elevation_filter\":\"4\",\"grade_filter\":\"4\",\"timeshift\":\"-4\"},\"gpx\":{\"trk\":{\"trkseg\":{\"trkpt\":[",
-            fmtTimeStamp(pTrk->time, hms), mToKm(pTrk->distance), 123, (unsigned) pTrk->elevGain, dateBuf);
+    fprintf(pArgs->outFile, "{\"extra\":{\"duration\":\"%s\",\"distance\":%.5lf,\"toughness\":\"%d\",\"elevation_gain\":%u,\"date_processed\":\"%s\",\"speed_filter\":\"%d\",\"elevation_filter\":\"%d\",\"grade_filter\":\"%d\",\"timeshift\":\"%d\"},\"gpx\":{\"trk\":{\"trkseg\":{\"trkpt\":[",
+            fmtTimeStamp(pTrk->time, hms), mToKm(pTrk->distance), toughness, (unsigned) pTrk->elevGain, dateBuf, speed_filter, elevation_filter, grade_filter, timeshift);
 
     TAILQ_FOREACH(p, &pTrk->trkPtList, tqEntry) {
         // The first "trkpt" is included in the header line,
         // while all the other ones are printed on separate
         // lines...
-
-        // Account for the time shift due to SMA
-        if ((pArgs->smaWindow != 0) && (p->index < pArgs->smaWindow))
-            continue;
 
         fprintf(pArgs->outFile, "{\"-lon\":\"%.7lf\",\"-lat\":\"%.7lf\",\"speed\":\"%.1lf\",\"ele\":\"%.3lf\",\"distance\":\"%.5lf\",\"bearing\":\"%.2lf\",\"slope\":\"%.1lf\",\"time\":\"%s\",\"index\":%u,\"cadence\":%u,\"p\":%u}%s",
                 p->longitude, p->latitude, mpsToKph(p->speed), p->elevation, mToKm(p->distance), p->bearing, p->grade, fmtTimeStamp((p->timestamp - baseTime), hms), p->index, p->cadence, 0, (TAILQ_NEXT(p, tqEntry) != NULL) ? ",\n" : "");
@@ -2212,10 +2337,6 @@ static void printTcxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
         double timeStamp = (p->adjTime != 0.0) ? p->adjTime : p->timestamp;    // use the adjusted timestamp if there is one
         time_t time;
         int ms = 0;
-
-        // Account for the time shift due to SMA
-        if ((pArgs->smaWindow != 0) && (p->index < pArgs->smaWindow))
-            continue;
 
         timeStamp += pTrk->timeOffset;
         time = (time_t) timeStamp;  // sec only

@@ -1,3 +1,16 @@
+/*=========================================================================
+ *
+ *   Filename:           tailq.h
+ *
+ *   Author:
+ *   Created:
+ *
+ *   Description:        TAILQ API borrowed from /usr/include/sys/queue.h
+ *                       to simplify compilation under Windows/MSC.
+ *
+ *=========================================================================
+ */
+
 #ifndef TAILQ_H_
 #define TAILQ_H_
 
