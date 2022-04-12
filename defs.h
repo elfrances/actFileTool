@@ -22,8 +22,8 @@
 #include "tailq.h"
 
 // Program version info
-#define PROG_VER_MAJOR  1
-#define PROG_VER_MINOR  6
+#define PROG_VER_MAJOR      1
+#define PROG_VER_MINOR      7
 
 typedef enum Bool {
     false = 0,

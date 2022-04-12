@@ -1073,7 +1073,9 @@ int main(int argc, char **argv)
             fprintf(stderr, "Unsupported input file %s\n", cmdArgs.inFile);
             return -1;
         }
-        if (strcmp(fileSuffix, ".gpx") == 0) {
+        if (strcmp(fileSuffix, ".fit") == 0) {
+            s = parseFitFile(&cmdArgs, &gpsTrk, cmdArgs.inFile);
+        } else if (strcmp(fileSuffix, ".gpx") == 0) {
             s = parseGpxFile(&cmdArgs, &gpsTrk, cmdArgs.inFile);
         } else if (strcmp(fileSuffix, ".tcx") == 0) {
             s = parseTcxFile(&cmdArgs, &gpsTrk, cmdArgs.inFile);

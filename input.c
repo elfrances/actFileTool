@@ -23,6 +23,13 @@
 #include "defs.h"
 #include "trkpt.h"
 
+// FIT SDK files
+//#include "fit/decode.c"
+#include "fit/fit.c"
+#include "fit/fit_example.c"
+#include "fit/fit_crc.c"
+#include "fit/fit_convert.c"
+
 static int getLine(FILE *fp, char *lineBuf, size_t bufLen, int lineNum)
 {
     while (true) {
@@ -50,6 +57,210 @@ static void spongExit(const char *msg, const char *inFile, int lineNum, const ch
 static void noActTrkPt(const char *inFile, int lineNum, const char *lineBuf)
 {
     spongExit("No active TrkPt !!!", inFile, lineNum, lineBuf);
+}
+
+// Parse the FIT file and create a list of Track Points (TrkPt's)
+int parseFitFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
+{
+    FILE *fp;
+    TrkPt *pTrkPt = NULL;
+    FIT_UINT8 buf[8];
+    FIT_CONVERT_RETURN conRet = FIT_CONVERT_CONTINUE;
+    FIT_UINT32 buf_size;
+    FIT_UINT32 mesgIndex = 0;
+
+    // Open the FIT file for reading
+    if ((fp = fopen(inFile, "r")) == NULL) {
+        fprintf(stderr, "Failed to open input file %s\n", inFile);
+        return -1;
+    }
+
+    FitConvert_Init(FIT_TRUE);
+
+    while (!feof(fp) && (conRet == FIT_CONVERT_CONTINUE)) {
+        for (buf_size = 0; (buf_size < sizeof(buf)) && !feof(fp); buf_size++) {
+            buf[buf_size] = (FIT_UINT8) getc(fp);
+        }
+
+        do {
+            conRet = FitConvert_Read(buf, buf_size);
+
+            switch (conRet) {
+            case FIT_CONVERT_MESSAGE_AVAILABLE: {
+                const FIT_UINT8 *mesg = FitConvert_GetMessageData();
+                FIT_UINT16 mesgNum = FitConvert_GetMessageNumber();
+
+                //printf("Mesg %d (%d) - ", mesgIndex, mesgNum);
+
+                switch (mesgNum) {
+                case FIT_MESG_NUM_FILE_ID: {
+                    //const FIT_FILE_ID_MESG *id = (FIT_FILE_ID_MESG *) mesg;
+                    //printf("File ID: type=%u, number=%u\n", id->type, id->number);
+                    break;
+                }
+
+                case FIT_MESG_NUM_USER_PROFILE: {
+                    //const FIT_USER_PROFILE_MESG *user_profile = (FIT_USER_PROFILE_MESG *) mesg;
+                    //printf("User Profile: weight=%0.1fkg\n", user_profile->weight / 10.0f);
+                    break;
+                }
+
+                case FIT_MESG_NUM_ACTIVITY: {
+                    //const FIT_ACTIVITY_MESG *activity = (FIT_ACTIVITY_MESG *) mesg;
+                    //printf("Activity: timestamp=%u, type=%u, event=%u, event_type=%u, num_sessions=%u\n",
+                    //        activity->timestamp, activity->type,
+                    //        activity->event, activity->event_type,
+                    //        activity->num_sessions);
+                    //{
+                    //    FIT_ACTIVITY_MESG old_mesg;
+                    //    old_mesg.num_sessions = 1;
+                    //    FitConvert_RestoreFields(&old_mesg);
+                    //    printf("Restored num_sessions=1 - Activity: timestamp=%u, type=%u, event=%u, event_type=%u, num_sessions=%u\n",
+                    //            activity->timestamp, activity->type,
+                    //            activity->event, activity->event_type,
+                    //            activity->num_sessions);
+                    //}
+                    break;
+                }
+
+                case FIT_MESG_NUM_SESSION: {
+                    //const FIT_SESSION_MESG *session = (FIT_SESSION_MESG *) mesg;
+                    //printf("Session: timestamp=%u start_lat=%d start_long=%d elapsed_time=%d distance=%d num_laps: %d\n",
+                    //        session->timestamp, session->start_position_lat, session->start_position_long,
+                    //        session->total_elapsed_time, session->total_distance, session->num_laps);
+                    break;
+                }
+
+                case FIT_MESG_NUM_LAP: {
+                    //const FIT_LAP_MESG *lap = (FIT_LAP_MESG *) mesg;
+                    //printf("Lap: timestamp=%u start_lat=%d start_long=%d end_lat=%d end_long=%d elapsed_time=%d distance=%d\n",
+                    //        lap->timestamp, lap->start_position_lat, lap->end_position_long, lap->end_position_lat, lap->end_position_long,
+                    //        lap->total_elapsed_time, lap->total_distance);
+                    break;
+                }
+
+                case FIT_MESG_NUM_RECORD: {
+                    const FIT_RECORD_MESG *record = (FIT_RECORD_MESG *) mesg;
+
+                    //printf("Record: timestamp=%u latitude=%d longitude=%d distance=%u time_from_course=%d altitude=%u speed=%u power=%u grade=%d heart_rate=%u cadence=%u temp=%d",
+                    //        record->timestamp, record->position_lat, record->position_long, record->distance, record->time_from_course,
+                    //        record->altitude, record->speed, record->power,
+                    //        record->grade, record->heart_rate, record->cadence,
+                    //        record->temperature);
+#if 0
+                    if ((record->compressed_speed_distance[0] != FIT_BYTE_INVALID) ||
+                        (record->compressed_speed_distance[1] != FIT_BYTE_INVALID) ||
+                        (record->compressed_speed_distance[2] != FIT_BYTE_INVALID)) {
+                        static FIT_UINT32 accumulated_distance16 = 0;
+                        static FIT_UINT32 last_distance16 = 0;
+                        FIT_UINT16 speed100;
+                        FIT_UINT32 distance16;
+
+                        speed100 = record->compressed_speed_distance[0] | ((record->compressed_speed_distance[1] & 0x0F) << 8);
+                        //printf(", speed = %0.2fm/s", speed100 / 100.0f);
+
+                        distance16 = (record->compressed_speed_distance[1] >> 4) | (record->compressed_speed_distance[2] << 4);
+                        accumulated_distance16 += (distance16 - last_distance16) & 0x0FFF;
+                        last_distance16 = distance16;
+
+                        //printf(", distance = %0.3fm",
+                        //        accumulated_distance16 / 16.0f);
+                    }
+#endif
+                    //printf("\n");
+
+                    // Alloc and init new TrkPt object
+                    if ((pTrkPt = newTrkPt(pTrk->numTrkPts++, inFile, mesgIndex)) == NULL) {
+                        fprintf(stderr, "Failed to create TrkPt object !!!\n");
+                        return -1;
+                    }
+
+                    pTrkPt->latitude = record->position_lat;
+                    pTrkPt->longitude = record->position_long;
+                    pTrkPt->timestamp = record->timestamp;
+                    pTrkPt->elevation = (double) (record->altitude - 500) / 5.0;
+                    pTrkPt->distance = (double) record->distance / 100.0;
+                    pTrkPt->speed = (double) record->speed / 1000.0;
+                    if (record->temperature != FIT_SINT8_INVALID) {
+                        pTrkPt->ambTemp = record->temperature;
+                        pTrk->inMask |= SD_ATEMP;
+                    }
+                    if (record->cadence != FIT_UINT8_INVALID) {
+                        pTrkPt->cadence = record->cadence;
+                        pTrk->inMask |= SD_CADENCE;
+                    }
+                    if (record->heart_rate != FIT_UINT8_INVALID) {
+                        pTrkPt->heartRate = record->heart_rate;
+                        pTrk->inMask |= SD_HR;
+                    }
+                    if (record->power != FIT_UINT16_INVALID) {
+                        pTrkPt->power = record->power;
+                        pTrk->inMask |= SD_POWER;
+                    }
+
+                    // Insert track point at the tail of the queue and update
+                    // the TrkPt count.
+                    TAILQ_INSERT_TAIL(&pTrk->trkPtList, pTrkPt, tqEntry);
+
+                    pTrkPt = NULL;
+                    break;
+                }
+
+                case FIT_MESG_NUM_EVENT: {
+                    //const FIT_EVENT_MESG *event = (FIT_EVENT_MESG *) mesg;
+                    //printf("Event: timestamp=%u event=%u event_type=%u\n",
+                    //        event->timestamp, event->event, event->event_type);
+                    break;
+                }
+
+                case FIT_MESG_NUM_DEVICE_INFO: {
+                    //const FIT_DEVICE_INFO_MESG *device_info = (FIT_DEVICE_INFO_MESG *) mesg;
+                    //printf("Device Info: timestamp=%u\n",
+                    //        device_info->timestamp);
+                    break;
+                }
+
+                default:
+                    //printf("Unknown\n");
+                    break;
+                }
+                break;
+            }
+
+            default:
+                break;
+            }
+
+            mesgIndex++;
+        } while (conRet == FIT_CONVERT_MESSAGE_AVAILABLE);
+    }
+
+    if (conRet == FIT_CONVERT_ERROR) {
+        printf("Error decoding file.\n");
+        return -1;
+    }
+
+    if (conRet == FIT_CONVERT_CONTINUE) {
+        printf("Unexpected end of file.\n");
+        return -1;
+    }
+
+    if (conRet == FIT_CONVERT_DATA_TYPE_NOT_SUPPORTED) {
+        printf("File is not FIT.\n");
+        return -1;
+    }
+
+    if (conRet == FIT_CONVERT_PROTOCOL_VERSION_NOT_SUPPORTED) {
+        printf("Protocol version not supported.\n");
+        return -1;
+    }
+
+    if (conRet == FIT_CONVERT_END_OF_FILE)
+        printf("File converted successfully.\n");
+
+    fclose(fp);
+
+    return 0;
 }
 
 // Parse the GPX file and create a list of Track Points (TrkPt's).
