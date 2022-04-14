@@ -225,8 +225,8 @@ static int gpxActType(GpsTrk *pTrk, CmdArgs *pArgs)
 
     if (pArgs->actType != undef) {
         type = pArgs->actType;
-    } else if (pTrk->type != 0) {
-        type = pTrk->type;
+    } else if (pTrk->actType != 0) {
+        type = pTrk->actType;
     } else {
         type = 1;   // default: Ride
     }
@@ -328,8 +328,8 @@ static const char *tcxActType(GpsTrk *pTrk, CmdArgs *pArgs)
 
     if (pArgs->actType != undef) {
         type = pArgs->actType;
-    } else if (pTrk->type != 0) {
-        type = pTrk->type;
+    } else if (pTrk->actType != 0) {
+        type = pTrk->actType;
     } else {
         type = 1;   // default: Ride
     }

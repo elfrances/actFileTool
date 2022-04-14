@@ -30,6 +30,46 @@ typedef enum Bool {
     true = 1
 } Bool;
 
+// Activity type
+typedef enum ActType {
+    undef = 0,
+    ride = 1,
+    hike = 4,
+    run = 9,
+    walk = 10,
+    vride = 17,
+    other = 99
+} ActType;
+
+// Output file format
+typedef enum OutFmt {
+    nil = 0,
+    csv = 1,    // Comma-Separated-Values format
+    gpx = 2,    // GPS Exchange format
+    shiz = 3,   // FulGaz format
+    tcx = 4     // Training Center Exchange format
+} OutFmt;
+
+// Timestamp format
+typedef enum TsFmt {
+    none = 0,
+    sec = 1,    // plain seconds
+    hms = 2     // hh:mm:ss
+} TsFmt;
+
+// Moving Average method
+typedef enum XmaMethod {
+    simple = 1,         // SMA
+    weighed = 2         // WMA
+} XmaMethod;
+
+// Metric used for the SMA/WMA
+typedef enum XmaMetric {
+    elevation = 1,      // elevation
+    grade = 2,          // grade
+    power = 3           // power
+} XmaMetric;
+
 // Sensor data bit masks
 #define SD_NONE     0x00    // no metrics
 #define SD_ATEMP    0x01    // ambient temperature
@@ -98,8 +138,8 @@ typedef struct GpsTrk {
     // of a null deltaT or a null deltaD.
     int numDiscTrkPts;
 
-    // Activity type
-    int type;
+    // Activity type / Sport
+    ActType actType;
 
     // Bitmask of optional metrics present in the input
     int inMask;
@@ -168,46 +208,6 @@ typedef struct GpsTrk {
     const TrkPt *minSpeedTrkPt;     // TrkPt with min speed value
     const TrkPt *minTempTrkPt;      // TrkPt with min temp value
 } GpsTrk;
-
-// Activity type
-typedef enum ActType {
-    undef = 0,
-    ride = 1,
-    hike = 4,
-    run = 9,
-    walk = 10,
-    vride = 17,
-    other = 99
-} ActType;
-
-// Output file format
-typedef enum OutFmt {
-    nil = 0,
-    csv = 1,    // Comma-Separated-Values format
-    gpx = 2,    // GPS Exchange format
-    shiz = 3,   // FulGaz format
-    tcx = 4     // Training Center Exchange format
-} OutFmt;
-
-// Timestamp format
-typedef enum TsFmt {
-    none = 0,
-    sec = 1,    // plain seconds
-    hms = 2     // hh:mm:ss
-} TsFmt;
-
-// Moving Average method
-typedef enum XmaMethod {
-    simple = 1,         // SMA
-    weighed = 2         // WMA
-} XmaMethod;
-
-// Metric used for the SMA/WMA
-typedef enum XmaMetric {
-    elevation = 1,      // elevation
-    grade = 2,          // grade
-    power = 3           // power
-} XmaMetric;
 
 typedef struct CmdArgs {
     int argc;               // number of arguments
