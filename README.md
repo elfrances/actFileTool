@@ -15,7 +15,7 @@ The tool has the following features:
 2. Can smooth out the elevation or grade values.
 3. Can limit the min/max grade level.
 4. Can filter out optional sensor data.
-5. Can generate a new GPX, TCX, or CSV file.
+5. Can generate a new GPX, TCX, CSV, or SHIZ file.
 
 Trimming out a range of points is useful to remove such things as "red light", "photo shot", or "nature break" stops during a ride.
 
@@ -26,6 +26,8 @@ Limiting the min/max grade levels is useful when the user knows *a priori* what 
 Filtering out optional metrics is useful to remove unwanted sensor data, such as cadence, heart rate, or power.
 
 Being able to generate a CSV file allows the file to be processed by an app such as Excel or LibreOffice, to do detailed data analysis and visualization.
+
+The SHIZ file is the control file used by the FulGaz app for its virtual routes.
 
 ## Building the tool
 
@@ -50,7 +52,7 @@ In a nutshell, a GPX file contains a "track", which contains one or more "track 
 
 Below you can see a clip from a GPX ride showing the general structure of the data:
 
-```xml
+```
   <trk>
     <trkseg>
       <trkpt lat="43.7689000000" lon="-114.2755600000">
@@ -72,6 +74,45 @@ Below you can see a clip from a GPX ride showing the general structure of the da
   </trk>
 ```
 The latitude and longitude values are expressed in decimal degrees, the elevation in meters, and the time in UTC.
+
+## About TCX Files
+
+TCX files are plain text files that use XML encoding based on the following [data schema](https://www8.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd).
+
+In a nutshell, a TCX file contains an "activity", which contains one or more "laps", which contain a "track", which contains the actual "track points". One significant difference between TCX and GPX is that the TCX track point includes two extra metrics: <DistanceMeters> which is the distance (in meters) from the start, and <Speed> which is the current speed (in meters per second).
+
+Below you can see a clip from a TCX ride showing the general structure of the data:
+
+```
+  <Activities>
+    <Activity Sport="Biking">
+      <Id>2022-04-14T03:03:07</Id>
+      <Lap StartTime="2022-04-14T03:03:07">
+        <TotalTimeSeconds>314.000</TotalTimeSeconds>
+        <DistanceMeters>1693.1400000000</DistanceMeters>
+        <MaximumSpeed>7.2310000000</MaximumSpeed>
+        <TriggerMethod>Manual</TriggerMethod>
+        <Track>
+          <Trackpoint>
+            <Time>2022-04-13T23:59:04.000Z</Time>
+            <Position>
+              <LatitudeDegrees>43.6231821513</LatitudeDegrees>
+              <LongitudeDegrees>-114.3532419458</LongitudeDegrees>
+            </Position>
+            <AltitudeMeters>1711.4000000000</AltitudeMeters>
+            <DistanceMeters>0.0000000000</DistanceMeters>
+            <Extensions>
+              <ns3:TPX>
+                <ns3:Speed>0.0000000000</ns3:Speed>
+              </ns3:TPX>
+            </Extensions>
+          .
+          .
+          .
+        </Track>
+      </Lap>
+    </Activity>
+```
 
 ## Examples
 
@@ -95,6 +136,9 @@ OPTIONS:
     --max-grade <value>
         Limit the maximum grade to the specified value. The elevation
         values are adjusted accordingly.
+    --max-grade-change <value>
+        Limit the maximum change in grade between points to the specified
+        value. The elevation values are adjusted accordingly.
     --min-grade <value>
         Limit the minimum grade to the specified value. The elevation
         values are adjusted accordingly.
@@ -125,12 +169,6 @@ OPTIONS:
     --set-speed <avg-speed>
         Use the specified average speed value (in km/h) to generate missing
         timestamps, or to replace the existing timestamps, in the input file.
-    --sma-metric {elevation|grade|power}
-        Specifies the metric to be smoothed out by the Simple Moving Average.
-    --sma-window <size>
-        Size of the window used to compute the Simple Moving Average
-        of the selected values, in order to smooth them out. It must be
-        an odd value.
     --start-time <time>
         Start time for the activity (in UTC time). The timestamp of each
         point is adjusted accordingly. Format is: 2018-01-22T10:01:10Z.
@@ -146,6 +184,14 @@ OPTIONS:
         ments to the data.
     --version
         Show version information and exit.
+    --xma-method {simple|weighed}
+        Specifies the type of Moving Average to compute: SMA or WMA.    
+    --xma-metric {elevation|grade|power}
+        Specifies the metric to be smoothed out by the selected Moving
+        Average method.
+    --xma-window <size>
+        Size of the window used to compute the selected Moving Average.
+        It must be an odd value.
 ```
 
 #### Example 1

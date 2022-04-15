@@ -23,7 +23,7 @@
 
 // Program version info
 #define PROG_VER_MAJOR      1
-#define PROG_VER_MINOR      7
+#define PROG_VER_MINOR      8
 
 typedef enum Bool {
     false = 0,

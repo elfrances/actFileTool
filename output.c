@@ -317,13 +317,13 @@ static const char *tcxActType(GpsTrk *pTrk, CmdArgs *pArgs)
 {
     int type;
     static const char *actTypeTbl[] = {
-            [undef]     "???",
-            [ride]      "Biking",
-            [hike]      "Hiking",
-            [run]       "Running",
-            [walk]      "Walking",
-            [vride]     "Virtual Cycling",
-            [other]     "Other"
+            [undef]     =   "???",
+            [ride]      =   "Biking",
+            [hike]      =   "Hiking",
+            [run]       =   "Running",
+            [walk]      =   "Walking",
+            [vride]     =   "Virtual Cycling",
+            [other]     =   "Other"
     };
 
     if (pArgs->actType != undef) {

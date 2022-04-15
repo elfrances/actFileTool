@@ -14,9 +14,10 @@
  *   distance "rise", and the hypotenuse is the actual distance traveled
  *   between the two points. The figure is not an exact triangle, because
  *   the run is not a straight line, but the great-circle distance over
- *   the Earth's surface. But when the two points are close together, we
- *   can assume the run is a straight line, and hence we are dealing with
- *   a rectangular triangle.
+ *   the Earth's surface. But when the two points are "close together",
+ *   as during a slow speed activity like cycling, we can assume the run
+ *   is a straight line, and hence we are dealing with a rectangular
+ *   triangle.
  *
  *                                 + P2
  *                                /|
@@ -27,8 +28,8 @@
  *                        P1 +-----+
  *                             run
  *
- *   Assuming the angle at P1, between dist and run, is "theta", then the
- *   following equations describe the relationship between the various
+ *   Assuming the angle at P1, between "dist" and "run", is "theta", then
+ *   the following equations describe the relationship between the various
  *   values:
  *
  *   slope = rise / run = tan(theta)
@@ -36,6 +37,19 @@
  *   dist^2 = run^2 + rise^2
  *
  *   dist = speed * (t2 - t1)
+ *
+ *   Having an actual speed sensor during a cycling activity is helpful
+ *   because that way "dist" can be easily an accurately computed from
+ *   the speed value and the time difference, which is typically fixed
+ *   at 1 second.
+ *
+ *   The "rise" is simply the elevation (altitude) difference between
+ *   the two points. In a consumer-level GPS device, the error in the
+ *   elevation value can be 3X the error in the latitude/longitude
+ *   values. The following article has useful info about the elevation
+ *   measurement:
+ *
+ *   https://eos-gnss.com/knowledge-base/articles/elevation-for-beginners
  *
  *=========================================================================
  *
@@ -134,7 +148,7 @@ static const char *help =
         "    --version\n"
         "        Show version information and exit.\n"
         "    --xma-method {simple|weighed}\n"
-        "        Specifies the type of Moving Average to compute: SMA or WMA."
+        "        Specifies the type of Moving Average to compute: SMA or WMA.\n"
         "    --xma-metric {elevation|grade|power}\n"
         "        Specifies the metric to be smoothed out by the selected Moving\n"
         "        Average method.\n"
@@ -494,8 +508,117 @@ static int closeTimeGap(GpsTrk *pTrk, CmdArgs *pArgs)
     return 0;
 }
 
-// Compute the distance (in meters) between two track points
-// using the Haversine formula. See below for the details:
+static Bool pointWithinRange(const CmdArgs *pArgs, const TrkPt *p)
+{
+    if (pArgs->rangeFrom == 0) {
+        // No actual range specified, so all points
+        // are within range...
+        return true;
+    }
+
+    if ((p->index >= pArgs->rangeFrom) && (p->index <= pArgs->rangeTo)) {
+        // Point is within specified range
+        return true;
+    }
+
+    return false;
+}
+
+static double xmaGetVal(const TrkPt *p, XmaMetric xmaMetric)
+{
+    if (xmaMetric == elevation) {
+        return (double) p->elevation;
+    } else if (xmaMetric == grade) {
+        return (double) p->grade;
+    } else {
+        return (double) p->power;
+    }
+}
+
+static Bool xmaSetVal(TrkPt *p, XmaMetric xmaMetric, double value)
+{
+    double oldVal;
+
+    if (xmaMetric == elevation) {
+        oldVal = p->elevation;
+        p->elevation = value;
+    } else if (xmaMetric == grade) {
+        oldVal = p->grade;
+        p->grade = value;
+    } else {
+        oldVal = p->power;
+        p->power = (int) value;
+    }
+
+    return (value != oldVal) ? true : false;
+}
+
+// Compute the Moving Average (SMA/WMA) of the specified
+// metric at the given point, using a window size of N
+// points, where N is an odd value. The average is computed
+// using the (N-1)/2 values before the point, the given point,
+// and the (N-1)/2 values after the point.
+static void compMovAvg(GpsTrk *pTrk, TrkPt *p, XmaMethod xmaMethod, XmaMetric xmaMetric, int xmaWindow)
+{
+    int i;
+    int n = (xmaWindow - 1) / 2;    // number of points to the L/R of the given point
+    int weight = 1; // SMA
+    int denom = 0;
+    double summ = 0.0;
+    double xmaVal;
+    TrkPt *tp;
+
+    // Points before the given point
+    for (i = 0, tp = TAILQ_PREV(p, TrkPtList, tqEntry); (i < n) && (tp != NULL); i++, tp = TAILQ_PREV(tp, TrkPtList, tqEntry)) {
+        if (xmaMethod == weighed)
+            weight = (n - i);
+        summ += (xmaGetVal(tp, xmaMetric) * weight);
+        denom += weight;
+    }
+
+    // The given point
+    if (xmaMethod == weighed)
+        weight = (n + 1);
+    summ += (xmaGetVal(p, xmaMetric) * weight);
+    denom += weight;
+
+    // Points after the given point
+    for (i = 0, tp = TAILQ_NEXT(p, tqEntry); (i < n) && (tp != NULL); i++, tp = TAILQ_NEXT(tp, tqEntry)) {
+        if (xmaMethod == weighed)
+            weight = (n - i);
+        summ += (xmaGetVal(tp, xmaMetric) * weight);
+        denom += weight;
+    }
+
+    // SMA/WMA value
+    xmaVal = summ / denom;
+
+    //fprintf(stderr, "%s: index=%d metric=%d before=%.3lf summ=%.3lf pts=%d after=%.3lf\n", __func__, p->index, xmaMetric, xmaGetVal(p, xmaMetric), summ, denom, xmaVal);
+
+    // Override the original value with the
+    // computed SMA/WMA value.
+    xmaSetVal(p, xmaMetric, xmaVal);
+}
+
+static int smoothElev(GpsTrk *pTrk, CmdArgs *pArgs)
+{
+    TrkPt *p1 = TAILQ_FIRST(&pTrk->trkPtList);  // previous TrkPt
+    TrkPt *p2 = TAILQ_NEXT(p1, tqEntry);    // current TrkPt
+
+    while (p2 != NULL) {
+        if (pointWithinRange(pArgs, p2)) {
+            compMovAvg(pTrk, p2, pArgs->xmaMethod, pArgs->xmaMetric, pArgs->xmaWindow);
+        }
+
+        p2 = nxtTrkPt(&p1, p2);
+    }
+
+    return 0;
+}
+
+// Compute the great-circle distance (in meters) between two
+// track points using the Haversine formula. See below for
+// the details:
 //
 //   https://en.wikipedia.org/wiki/Haversine_formula
 //
@@ -548,11 +671,11 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
         // The "rise" is always positive!
         absRise = fabs(p2->rise);
 
-        // TCX files include the <DistanceMeters> metric
-        // which is the distance (in meters) from the start
-        // up to the given point.  For GPX files, we need to
-        // compute the distance between consecutive points
-        // using their GPS data.
+        // FIT/TCX files include the "distance" metric which
+        // is the distance (in meters) from the start up to
+        // the given point.  For GPX files, we need to compute
+        // the distance between consecutive points using their
+        // GPS data.
         if (p2->distance != 0.0) {
             if ((p2->dist = p2->distance - p1->distance) == 0.0) {
                 // Stopped?
@@ -710,114 +833,6 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
     return 0;
 }
 
-static double xmaGetVal(const TrkPt *p, XmaMetric xmaMetric)
-{
-    if (xmaMetric == elevation) {
-        return (double) p->elevation;
-    } else if (xmaMetric == grade) {
-        return (double) p->grade;
-    } else {
-        return (double) p->power;
-    }
-}
-
-static Bool xmaSetVal(TrkPt *p, XmaMetric xmaMetric, double value)
-{
-    double oldVal;
-
-    if (xmaMetric == elevation) {
-        oldVal = p->elevation;
-        p->elevation = value;
-    } else if (xmaMetric == grade) {
-        oldVal = p->grade;
-        p->grade = value;
-    } else {
-        oldVal = p->power;
-        p->power = (int) value;
-    }
-
-    return (value != oldVal) ? true : false;
-}
-
-// Compute the Moving Average (SMA/WMA) of the specified
-// metric at the given point, using a window size of N
-// points, where N is an odd value. The average is computed
-// using the (N-1)/2 values before the point, the given point,
-// and the (N-1)/2 values after the point.
-static void compMovAvg(GpsTrk *pTrk, TrkPt *p, XmaMethod xmaMethod, XmaMetric xmaMetric, int xmaWindow)
-{
-    int i;
-    int n = (xmaWindow - 1) / 2;    // number of points to the L/R of the given point
-    int weight = 1; // SMA
-    int denom = 0;
-    double summ = 0.0;
-    double xmaVal;
-    TrkPt *tp;
-
-    // Points before the given point
-    for (i = 0, tp = TAILQ_PREV(p, TrkPtList, tqEntry); (i < n) && (tp != NULL); i++, tp = TAILQ_PREV(tp, TrkPtList, tqEntry)) {
-        if (xmaMethod == weighed)
-            weight = (n - i);
-        summ += (xmaGetVal(tp, xmaMetric) * weight);
-        denom += weight;
-    }
-
-    // The given point
-    if (xmaMethod == weighed)
-        weight = (n + 1);
-    summ += (xmaGetVal(p, xmaMetric) * weight);
-    denom += weight;
-
-    // Points after the given point
-    for (i = 0, tp = TAILQ_NEXT(p, tqEntry); (i < n) && (tp != NULL); i++, tp = TAILQ_NEXT(tp, tqEntry)) {
-        if (xmaMethod == weighed)
-            weight = (n - i);
-        summ += (xmaGetVal(tp, xmaMetric) * weight);
-        denom += weight;
-    }
-
-    // SMA/WMA value
-    xmaVal = summ / denom;
-
-    //fprintf(stderr, "%s: index=%d metric=%d before=%.3lf summ=%.3lf pts=%d after=%.3lf\n", __func__, p->index, xmaMetric, xmaGetVal(p, xmaMetric), summ, denom, xmaVal);
-
-    // Override the original value with the
-    // computed SMA/WMA value.
-    if (xmaSetVal(p, xmaMetric, xmaVal)) {
-        if (xmaMetric == elevation) {
-            // Recompute the grade using the adjusted
-            // elevation value. Guard against points
-            // with run=0, which can happen when using
-            // the --verbose option...
-            TrkPt *prev = TAILQ_PREV(p, TrkPtList, tqEntry);
-            if (p->run != 0.0) {
-                p->rise = p->elevation - prev->elevation;
-                p->grade = (p->rise * 100.0) / p->run;  // in [%]
-            } else {
-                p->grade = prev->grade; // carry over the previous grade value
-            }
-        } else if (xmaMetric == grade) {
-            // Flag that this point had its grade adjusted
-            p->adjGrade = true;
-        }
-    }
-}
-
-static Bool pointWithinRange(const CmdArgs *pArgs, const TrkPt *p)
-{
-    if (pArgs->rangeFrom == 0) {
-        // No actual range specified, so all points
-        // are within range...
-        return true;
-    }
-
-    if ((p->index >= pArgs->rangeFrom) && (p->index <= pArgs->rangeTo)) {
-        // Point is within specified range
-        return true;
-    }
-
-    return false;
-}
 
 static void adjMaxGrade(GpsTrk *pTrk, CmdArgs *pArgs, TrkPt *p1, TrkPt *p2)
 {
@@ -900,8 +915,9 @@ static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
 
     while (p2 != NULL) {
         if (pointWithinRange(pArgs, p2)) {
-            // Do we need to smooth out any values?
-            if (pArgs->xmaWindow != 0) {
+            // Do we need to smooth out any values, other
+            // than elevation (which we already did) ?
+            if ((pArgs->xmaWindow != 0) && (pArgs->xmaMetric != elevation)) {
                 compMovAvg(pTrk, p2, pArgs->xmaMethod, pArgs->xmaMetric, pArgs->xmaWindow);
             }
 
@@ -1112,8 +1128,8 @@ int main(int argc, char **argv)
     }
 
     if (pTrkPt->timestamp == 0.0) {
-        // TrkPt has no time information, likely because this
-        // is a GPX/TCX route, and not an actual GPX/TCX ride.
+        // TrkPt has no time information, likely because this is
+        // a GPX/TCX route, and not an actual GPX/TCX activity.
         // In this case we need to have a start time and a set
         // speed defined, in order to be able to calculate the
         // timestamps that turn the route into a ride.
@@ -1155,6 +1171,13 @@ int main(int argc, char **argv)
         // Close the time gap at the specified track
         // point.
         closeTimeGap(&gpsTrk, &cmdArgs);
+    }
+
+    // If requested, smooth the elevation values before we
+    // compute the speed and grade, so as to minimize the
+    // errors.
+    if ((cmdArgs.xmaWindow != 0) && (cmdArgs.xmaMetric == elevation)) {
+        smoothElev(&gpsTrk, &cmdArgs);
     }
 
     // Compute the speed & grade data

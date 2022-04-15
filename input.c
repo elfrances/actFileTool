@@ -59,21 +59,23 @@ static void noActTrkPt(const char *inFile, int lineNum, const char *lineBuf)
     spongExit("No active TrkPt !!!", inFile, lineNum, lineBuf);
 }
 
-static const char *garminEpoch = "1990–12–31T00:00:00Z";
+static const char *garminEpoch = "1990-12-31T00:00:00Z";
 
 // Parse the FIT file and create a list of Track Points (TrkPt's)
 int parseFitFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
 {
     FILE *fp;
     TrkPt *pTrkPt = NULL;
-    FIT_UINT8 buf[8];
+    FIT_UINT8 inBuf[8];
     FIT_CONVERT_RETURN conRet = FIT_CONVERT_CONTINUE;
     FIT_UINT32 bufSize;
     FIT_UINT32 mesgIndex = 0;
     FIT_MANUFACTURER manufacturer = FIT_MANUFACTURER_INVALID;
     struct tm brkDwnTime = {0};
     time_t timeStampOffset;
+    Bool timerRunning = false;
 
+    // Compute the UTC of the Garmin Epoch
     strptime(garminEpoch, "%Y-%m-%dT%H:%M:%S", &brkDwnTime);
     timeStampOffset = mktime(&brkDwnTime);
 
@@ -86,12 +88,12 @@ int parseFitFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
     FitConvert_Init(FIT_TRUE);
 
     while (!feof(fp) && (conRet == FIT_CONVERT_CONTINUE)) {
-        for (bufSize = 0; (bufSize < sizeof(buf)) && !feof(fp); bufSize++) {
-            buf[bufSize] = (FIT_UINT8) getc(fp);
+        for (bufSize = 0; (bufSize < sizeof (inBuf)) && !feof(fp); bufSize++) {
+            inBuf[bufSize] = (FIT_UINT8) getc(fp);
         }
 
         do {
-            if ((conRet = FitConvert_Read(buf, bufSize)) == FIT_CONVERT_MESSAGE_AVAILABLE) {
+            if ((conRet = FitConvert_Read(inBuf, bufSize)) == FIT_CONVERT_MESSAGE_AVAILABLE) {
                 const FIT_UINT8 *mesg = FitConvert_GetMessageData();
                 FIT_UINT16 mesgNum = FitConvert_GetMessageNumber();
 
@@ -122,6 +124,16 @@ int parseFitFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
 
                 case FIT_MESG_NUM_ZONES_TARGET: {
                     //printf("Zones Target: \n");
+                    break;
+                }
+
+                case FIT_MESG_NUM_HR_ZONE: {
+                    //printf("HR Zone: \n");
+                    break;
+                }
+
+                case FIT_MESG_NUM_POWER_ZONE: {
+                    //printf("Power Zone: \n");
                     break;
                 }
 
@@ -160,13 +172,13 @@ int parseFitFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
 
                 case FIT_MESG_NUM_RECORD: {
                     const FIT_RECORD_MESG *record = (FIT_RECORD_MESG *) mesg;
-
-                    //printf("Record: timestamp=%u latitude=%d longitude=%d distance=%u altitude=%u speed=%u power=%u heart_rate=%u cadence=%u temp=%d",
-                    //        record->timestamp, record->position_lat, record->position_long, record->distance,
-                    //        record->altitude, record->speed, record->power,
-                    //        record->heart_rate, record->cadence,
-                    //        record->temperature);
 #if 0
+                    printf("Record: timestamp=%u latitude=%d longitude=%d distance=%u altitude=%u speed=%u power=%u heart_rate=%u cadence=%u temp=%d",
+                            record->timestamp, record->position_lat, record->position_long, record->distance,
+                            record->altitude, record->speed, record->power,
+                            record->heart_rate, record->cadence,
+                            record->temperature);
+
                     if ((record->compressed_speed_distance[0] != FIT_BYTE_INVALID) ||
                         (record->compressed_speed_distance[1] != FIT_BYTE_INVALID) ||
                         (record->compressed_speed_distance[2] != FIT_BYTE_INVALID)) {
@@ -176,91 +188,110 @@ int parseFitFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
                         FIT_UINT32 distance16;
 
                         speed100 = record->compressed_speed_distance[0] | ((record->compressed_speed_distance[1] & 0x0F) << 8);
-                        //printf(", speed = %0.2fm/s", speed100 / 100.0f);
+                        printf(", speed = %0.2fm/s", speed100 / 100.0f);
 
                         distance16 = (record->compressed_speed_distance[1] >> 4) | (record->compressed_speed_distance[2] << 4);
                         accumulated_distance16 += (distance16 - last_distance16) & 0x0FFF;
                         last_distance16 = distance16;
 
-                        //printf(", distance = %0.3fm",
-                        //        accumulated_distance16 / 16.0f);
+                        printf(", distance = %0.3fm", accumulated_distance16 / 16.0f);
                     }
 #endif
-                    // The Strava app generates two FIT RECORD messages for
-                    // each trackpoint (i.e. timestamp). The first one seems
-                    // to always have a valid distance value of 0.000, but no
-                    // latitude/longitude values: e.g.
-                    //
-                    // Mesg 9 (21) - Event: timestamp=1018803532 event=0 event_type=0
-                    // Mesg 10 (20) - Record: timestamp=1018803532 distance=0.000
-                    // Mesg 11 (20) - Record: timestamp=1018803532 latitude=43.6232699098 longitude=-114.3533090010 enh_altitude=1712.000 speed=0.310
-                    // Mesg 12 (20) - Record: timestamp=1018803533 distance=0.000
-                    // Mesg 13 (20) - Record: timestamp=1018803533 latitude=43.6232681496 longitude=-114.3533167124 enh_altitude=1712.000 speed=0.112
-                    //
-                    // So here we detect, and skip, such RECORD messages...
-                    if ((manufacturer == FIT_MANUFACTURER_STRAVA) &&
-                        ((record->position_lat == FIT_SINT32_INVALID) ||
-                         (record->position_long == FIT_SINT32_INVALID) ||
-                         (record->enhanced_altitude == FIT_UINT32_INVALID))) {
-                        //printf(" *** SKIPPED ***");
+                    if (timerRunning) {
+                        // The Strava app generates a pair of FIT RECORD messages
+                        // for each trackpoint (i.e. timestamp). The first one seems
+                        // to always have a valid distance value of 0.000, but no
+                        // latitude/longitude/altitude values: e.g.
+                        //
+                        // Mesg 9 (21) - Event: timestamp=1018803532 event=0 event_type=0
+                        // Mesg 10 (20) - Record: timestamp=1018803532 distance=0.000
+                        // Mesg 11 (20) - Record: timestamp=1018803532 latitude=43.6232699098 longitude=-114.3533090010 enh_altitude=1712.000 speed=0.310
+                        // Mesg 12 (20) - Record: timestamp=1018803533 distance=0.000
+                        // Mesg 13 (20) - Record: timestamp=1018803533 latitude=43.6232681496 longitude=-114.3533167124 enh_altitude=1712.000 speed=0.112
+                        //
+                        // So here we detect, and skip, such RECORD messages...
+                        if ((manufacturer == FIT_MANUFACTURER_STRAVA) &&
+                            ((record->position_lat == FIT_SINT32_INVALID) ||
+                             (record->position_long == FIT_SINT32_INVALID) ||
+                             (record->enhanced_altitude == FIT_UINT32_INVALID))) {
+                            //printf(" *** SKIPPED ***");
+                        } else {
+                            // Alloc and init new TrkPt object
+                            if ((pTrkPt = newTrkPt(pTrk->numTrkPts++, inFile, mesgIndex)) == NULL) {
+                                fprintf(stderr, "Failed to create TrkPt object !!!\n");
+                                return -1;
+                            }
+
+                            pTrkPt->timestamp = (double) ((time_t) record->timestamp + timeStampOffset);
+
+                            if (record->position_lat != FIT_SINT32_INVALID) {
+                                pTrkPt->latitude = ((double) record->position_lat / (double) 0x7FFFFFFF) * 180.0;
+                            }
+
+                            if (record->position_long != FIT_SINT32_INVALID) {
+                                pTrkPt->longitude = ((double) record->position_long / (double) 0x7FFFFFFF) * 180.0;
+                            }
+
+                            if (record->distance != FIT_UINT32_INVALID) {
+                                pTrkPt->distance = ((double) record->distance / 100.0); // in m
+                            }
+
+                            if (record->enhanced_altitude != FIT_UINT32_INVALID) {
+                                pTrkPt->elevation = (((double) record->enhanced_altitude / 5.0) - 500.0);    // in m
+                            } else if (record->altitude != FIT_UINT16_INVALID) {
+                                pTrkPt->elevation = (((double) record->altitude / 5.0) - 500.0);    // in m
+                            }
+
+                            if (record->enhanced_speed != FIT_UINT32_INVALID) {
+                                pTrkPt->speed = ((double) record->enhanced_speed / 1000.0);  // in m/s
+                            } else if (record->speed != FIT_UINT16_INVALID) {
+                                pTrkPt->speed = ((double) record->speed / 1000.0);  // in m/s
+                            }
+
+                            if (record->temperature != FIT_SINT8_INVALID) {
+                                pTrkPt->ambTemp = record->temperature;
+                                pTrk->inMask |= SD_ATEMP;
+                            }
+
+                            if (record->cadence != FIT_UINT8_INVALID) {
+                                pTrkPt->cadence = record->cadence;
+                                pTrk->inMask |= SD_CADENCE;
+                            }
+
+                            if (record->heart_rate != FIT_UINT8_INVALID) {
+                                pTrkPt->heartRate = record->heart_rate;
+                                pTrk->inMask |= SD_HR;
+                            }
+
+                            if (record->power != FIT_UINT16_INVALID) {
+                                pTrkPt->power = record->power;
+                                pTrk->inMask |= SD_POWER;
+                            }
+
+                            // Insert track point at the tail of the queue and update
+                            // the TrkPt count.
+                            TAILQ_INSERT_TAIL(&pTrk->trkPtList, pTrkPt, tqEntry);
+
+                            pTrkPt = NULL;
+                        }
                     } else {
-                        // Alloc and init new TrkPt object
-                        if ((pTrkPt = newTrkPt(pTrk->numTrkPts++, inFile, mesgIndex)) == NULL) {
-                            fprintf(stderr, "Failed to create TrkPt object !!!\n");
-                            return -1;
-                        }
-
-                        pTrkPt->timestamp = (double) ((time_t) record->timestamp + timeStampOffset);
-                        if (record->position_lat != FIT_SINT32_INVALID) {
-                            pTrkPt->latitude = ((double) record->position_lat / (double) 0x7FFFFFFF) * 180.0;
-                        }
-                        if (record->position_long != FIT_SINT32_INVALID) {
-                            pTrkPt->longitude = ((double) record->position_long / (double) 0x7FFFFFFF) * 180.0;
-                        }
-                        if (record->distance != FIT_UINT32_INVALID) {
-                            pTrkPt->distance = ((double) record->distance / 100.0); // in m
-                        }
-                        if (record->enhanced_altitude != FIT_UINT32_INVALID) {
-                            pTrkPt->elevation = (((double) record->enhanced_altitude / 5.0) - 500.0);    // in m
-                        } else if (record->altitude != FIT_UINT16_INVALID) {
-                            pTrkPt->elevation = (((double) record->altitude / 5.0) - 500.0);    // in m
-                        }
-                        if (record->enhanced_speed != FIT_UINT32_INVALID) {
-                            pTrkPt->speed = ((double) record->enhanced_speed / 1000.0);  // in m/s
-                        } else if (record->speed != FIT_UINT16_INVALID) {
-                            pTrkPt->speed = ((double) record->speed / 1000.0);  // in m/s
-                        }
-                        if (record->temperature != FIT_SINT8_INVALID) {
-                            pTrkPt->ambTemp = record->temperature;
-                            pTrk->inMask |= SD_ATEMP;
-                        }
-                        if (record->cadence != FIT_UINT8_INVALID) {
-                            pTrkPt->cadence = record->cadence;
-                            pTrk->inMask |= SD_CADENCE;
-                        }
-                        if (record->heart_rate != FIT_UINT8_INVALID) {
-                            pTrkPt->heartRate = record->heart_rate;
-                            pTrk->inMask |= SD_HR;
-                        }
-                        if (record->power != FIT_UINT16_INVALID) {
-                            pTrkPt->power = record->power;
-                            pTrk->inMask |= SD_POWER;
-                        }
-
-                        // Insert track point at the tail of the queue and update
-                        // the TrkPt count.
-                        TAILQ_INSERT_TAIL(&pTrk->trkPtList, pTrkPt, tqEntry);
-
-                        pTrkPt = NULL;
+                        fprintf(stderr, "Hu? Timer not running !!!\n");
                     }
                     //printf("\n");
                     break;
                 }
 
                 case FIT_MESG_NUM_EVENT: {
-                    //const FIT_EVENT_MESG *event = (FIT_EVENT_MESG *) mesg;
+                    const FIT_EVENT_MESG *event = (FIT_EVENT_MESG *) mesg;
                     //printf("Event: timestamp=%u event=%u event_type=%u\n",
                     //        event->timestamp, event->event, event->event_type);
+                    if (event->event == FIT_EVENT_TIMER) {
+                        if (event->event_type == FIT_EVENT_TYPE_START) {
+                            timerRunning = true;
+                        } else if (event->event_type == FIT_EVENT_TYPE_STOP) {
+                            timerRunning = false;
+                        }
+                    }
                     break;
                 }
 
