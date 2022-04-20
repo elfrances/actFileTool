@@ -46,6 +46,7 @@ TrkPt *newTrkPt(int index, const char *inFile, int lineNum)
     pTrkPt->inFile = inFile;
     pTrkPt->lineNum = lineNum;
     pTrkPt->elevation = nilElev;
+    pTrkPt->grade = nilGrade;
 
     return pTrkPt;
 }

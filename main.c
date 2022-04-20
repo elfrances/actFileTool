@@ -13,7 +13,7 @@
  *   base is the horizontal distance "run", the height is the vertical
  *   distance "rise", and the hypotenuse is the actual distance traveled
  *   between the two points. The figure is not an exact triangle, because
- *   the run is not a straight line, but the great-circle distance over
+ *   the "run" is not a straight line, but the great-circle distance over
  *   the Earth's surface. But when the two points are "close together",
  *   as during a slow speed activity like cycling, we can assume the run
  *   is a straight line, and hence we are dealing with a rectangular
@@ -38,11 +38,6 @@
  *
  *   dist = speed * (t2 - t1)
  *
- *   Having an actual speed sensor during a cycling activity is helpful
- *   because that way "dist" can be easily an accurately computed from
- *   the speed value and the time difference, which is typically fixed
- *   at 1 second.
- *
  *   The "rise" is simply the elevation (altitude) difference between
  *   the two points. In a consumer-level GPS device, the error in the
  *   elevation value can be 3X the error in the latitude/longitude
@@ -50,6 +45,14 @@
  *   measurement:
  *
  *   https://eos-gnss.com/knowledge-base/articles/elevation-for-beginners
+ *
+ *   Having an actual speed sensor on the bike during a cycling activity is
+ *   helpful because that way "dist" can be easily an accurately computed
+ *   from the speed value and the time difference, which is typically fixed
+ *   at 1 second. If no speed sensor is available, the "dist" value needs
+ *   to be computed from the "run" and "rise" values, using Pythagoras's
+ *   Theorem, where the "run" value is computed from the latitude/longitude
+ *   using the Haversine formula.
  *
  *=========================================================================
  *
@@ -102,12 +105,18 @@ static const char *help =
         "    --max-grade-change <value>\n"
         "        Limit the maximum change in grade between points to the specified\n"
         "        value. The elevation values are adjusted accordingly.\n"
+        "    --max-speed-change <value>\n"
+        "        Limit the maximum change in speed between points to the specified\n"
+        "        value.\n"
         "    --min-grade <value>\n"
         "        Limit the minimum grade to the specified value. The elevation\n"
         "        values are adjusted accordingly.\n"
         "    --name <name>\n"
         "        String to use for the <name> tag of the track in the output\n"
         "        file.\n"
+        "    --no-elev-adj\n"
+        "        Do not auto-adjust the elevation values when the grade values are\n"
+        "        modified.\n"
         "    --output-file <name>\n"
         "        Write the output data into the specified file. If not specified\n"
         "        the output data is written to standard output.\n"
@@ -149,7 +158,7 @@ static const char *help =
         "        Show version information and exit.\n"
         "    --xma-method {simple|weighed}\n"
         "        Specifies the type of Moving Average to compute: SMA or WMA.\n"
-        "    --xma-metric {elevation|grade|power}\n"
+        "    --xma-metric {elevation|grade|power|speed}\n"
         "        Specifies the metric to be smoothed out by the selected Moving\n"
         "        Average method.\n"
         "    --xma-window <size>\n"
@@ -215,19 +224,33 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
             }
         } else if (strcmp(arg, "--max-grade") == 0) {
             val = argv[++n];
-            if (sscanf(val, "%le", &pArgs->maxGrade) != 1) {
+            if ((sscanf(val, "%le", &pArgs->maxGrade) != 1) ||
+                (pArgs->maxGrade < -99.9) ||
+                (pArgs->maxGrade > 99.9)) {
                 invalidArgument(arg, val);
                 return -1;
             }
         } else if (strcmp(arg, "--max-grade-change") == 0) {
             val = argv[++n];
-            if (sscanf(val, "%le", &pArgs->maxGradeChange) != 1) {
+            if ((sscanf(val, "%le", &pArgs->maxGradeChange) != 1) ||
+                (pArgs->maxGradeChange < 0.1) ||
+                (pArgs->maxGradeChange > 999.9)) {
+                invalidArgument(arg, val);
+                return -1;
+            }
+        } else if (strcmp(arg, "--max-speed-change") == 0) {
+            val = argv[++n];
+            if ((sscanf(val, "%le", &pArgs->maxSpeedChange) != 1) ||
+                (pArgs->maxSpeedChange < 0.1) ||
+                (pArgs->maxSpeedChange > 999.9)) {
                 invalidArgument(arg, val);
                 return -1;
             }
         } else if (strcmp(arg, "--min-grade") == 0) {
             val = argv[++n];
-            if (sscanf(val, "%le", &pArgs->minGrade) != 1) {
+            if ((sscanf(val, "%le", &pArgs->minGrade) != 1) ||
+                (pArgs->minGrade < -99.9) ||
+                (pArgs->minGrade > 99.9)) {
                 invalidArgument(arg, val);
                 return -1;
             }
@@ -237,6 +260,8 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
                 fprintf(stderr, "Can't copy name argument: %s\n", val);
                 return -1;
             }
+        }  else if (strcmp(arg, "--no-elev-adj") == 0) {
+            pArgs->noElevAdj = true;
         } else if (strcmp(arg, "--output-file") == 0) {
             val = argv[++n];
             if ((pArgs->outFile = fopen(val, "w")) == NULL) {
@@ -335,6 +360,8 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
                 pArgs->xmaMetric = grade;
             } else if (strcmp(val, "power") == 0) {
                 pArgs->xmaMetric = power;
+            } else if (strcmp(val, "speed") == 0) {
+                pArgs->xmaMetric = speed;
             } else {
                 invalidArgument(arg, val);
                 return -1;
@@ -530,8 +557,10 @@ static double xmaGetVal(const TrkPt *p, XmaMetric xmaMetric)
         return (double) p->elevation;
     } else if (xmaMetric == grade) {
         return (double) p->grade;
-    } else {
+    } else if (xmaMetric == power) {
         return (double) p->power;
+    } else {
+        return p->speed;
     }
 }
 
@@ -545,9 +574,12 @@ static Bool xmaSetVal(TrkPt *p, XmaMetric xmaMetric, double value)
     } else if (xmaMetric == grade) {
         oldVal = p->grade;
         p->grade = value;
-    } else {
+    } else if (xmaMetric == power) {
         oldVal = p->power;
         p->power = (int) value;
+    } else {
+        oldVal = p->speed;
+        p->speed = value;
     }
 
     return (value != oldVal) ? true : false;
@@ -567,6 +599,7 @@ static void compMovAvg(GpsTrk *pTrk, TrkPt *p, XmaMethod xmaMethod, XmaMetric xm
     double summ = 0.0;
     double xmaVal;
     TrkPt *tp;
+    Bool valAdj;
 
     // Points before the given point
     for (i = 0, tp = TAILQ_PREV(p, TrkPtList, tqEntry); (i < n) && (tp != NULL); i++, tp = TAILQ_PREV(tp, TrkPtList, tqEntry)) {
@@ -597,7 +630,12 @@ static void compMovAvg(GpsTrk *pTrk, TrkPt *p, XmaMethod xmaMethod, XmaMetric xm
 
     // Override the original value with the
     // computed SMA/WMA value.
-    xmaSetVal(p, xmaMetric, xmaVal);
+    valAdj = xmaSetVal(p, xmaMetric, xmaVal);
+
+    if (valAdj && (xmaMetric == grade)) {
+        // Flag that this point had its grade adjusted
+        p->adjGrade = true;
+    }
 }
 
 static int smoothElev(GpsTrk *pTrk, CmdArgs *pArgs)
@@ -673,15 +711,16 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
 
         // FIT/TCX files include the "distance" metric which
         // is the distance (in meters) from the start up to
-        // the given point.  For GPX files, we need to compute
-        // the distance between consecutive points using their
+        // the given point. For GPX files, we need to compute
+        // the distance between consecutive points using the
         // GPS data.
         if (p2->distance != 0.0) {
             if ((p2->dist = p2->distance - p1->distance) == 0.0) {
                 // Stopped?
                 if (!pArgs->verbatim) {
                     if (!pArgs->quiet) {
-                        fprintf(stderr, "WARNING: TrkPt #%d has a null distance value !\n", p2->index);
+                        fprintf(stderr, "WARNING: TrkPt #%d (%s) has a null distance value !\n",
+                                p2->index, fmtTrkPtIdx(p2));
                         printTrkPt(p2);
                     }
 
@@ -708,11 +747,11 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
             } else {
                 // Bogus data?
                 if (!pArgs->quiet) {
-                    fprintf(stderr, "WARNING: TrkPt #%d has inconsistent dist=%.3lf and rise=%.3lf values !\n",
-                            p2->index, p2->dist, absRise);
+                    fprintf(stderr, "WARNING: TrkPt #%d (%s) has inconsistent dist=%.3lf and rise=%.3lf values !\n",
+                            p2->index, fmtTrkPtIdx(p2), p2->dist, absRise);
                     printTrkPt(p2);
                 }
-                p2->run = p2->dist;
+                p2->run = p2->dist; // assume a null grade
             }
         } else {
             // Compute the horizontal distance "run" between
@@ -722,7 +761,8 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
                 // Stopped?
                 if (!pArgs->verbatim) {
                     if (!pArgs->quiet) {
-                        fprintf(stderr, "WARNING: TrkPt #%d has a null run value !\n", p2->index);
+                        fprintf(stderr, "WARNING: TrkPt #%d (%s) has a null run value !\n",
+                                p2->index, fmtTrkPtIdx(p2));
                         printTrkPt(p2);
                     }
 
@@ -811,14 +851,20 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
         // Update the total time for the activity
         pTrk->time += p2->deltaT;
 
-        // Compute the grade as "rise over run". Notice
-        // that the grade value may get updated later.
-        // Guard against points with run=0, which can
-        // happen when using the "--verbose" option...
-        if (p2->run != 0.0) {
-            p2->grade = (p2->rise * 100.0) / p2->run;   // in [%]
-        } else {
-            p2->grade = p1->grade;  // carry over the previous grade value
+        if (p2->grade == nilGrade) {
+            // Compute the grade as "rise over run". Notice
+            // that the grade value may get updated later.
+            // Guard against points with run=0, which can
+            // happen when using the "--verbose" option...
+            if (p2->run != 0.0) {
+                p2->grade = (p2->rise * 100.0) / p2->run;   // in [%]
+            } else {
+                if (!pArgs->quiet) {
+                    fprintf(stderr, "WARNING: TrkPt #%d (%s) has a null run value !\n",
+                            p2->index, fmtTrkPtIdx(p2));
+                }
+                p2->grade = p1->grade;  // carry over the previous grade value
+            }
         }
 
         // Compute the bearing
@@ -866,7 +912,7 @@ static void adjGradeChange(GpsTrk *pTrk, CmdArgs *pArgs, TrkPt *p1, TrkPt *p2)
 {
     if (!pArgs->quiet) {
         fprintf(stderr, "WARNING: TrkPt #%d (%s) has a grade change of %.2lf%% that is above the limit %.2lf%% !\n",
-                p2->index, fmtTrkPtIdx(p2), p2->grade, pArgs->maxGradeChange);
+                p2->index, fmtTrkPtIdx(p2), p2->deltaG, pArgs->maxGradeChange);
     }
 
     // Override original value with the max value
@@ -880,6 +926,24 @@ static void adjGradeChange(GpsTrk *pTrk, CmdArgs *pArgs, TrkPt *p1, TrkPt *p2)
     p2->adjGrade = true;
 }
 
+static void adjSpeedChange(GpsTrk *pTrk, CmdArgs *pArgs, TrkPt *p1, TrkPt *p2)
+{
+    double maxSpeedChange = (p1->speed * pArgs->maxSpeedChange) / 100.0;
+
+    if (!pArgs->quiet) {
+        fprintf(stderr, "WARNING: TrkPt #%d (%s) has a speed change of %.2lf%% that is above the limit %.2lf%% !\n",
+                p2->index, fmtTrkPtIdx(p2), p2->deltaS, pArgs->maxSpeedChange);
+    }
+
+    // Override original value with the max value
+    if (p2->speed > p1->speed) {
+        p2->speed = p1->speed + maxSpeedChange;
+    } else {
+        p2->speed = p1->speed - maxSpeedChange;
+    }
+}
+
+#if 0
 // Given a fixed distance (dist) figure out what the
 // elevation difference (rise) should be, in order to
 // get the desired grade value, and adjust the elevation
@@ -902,18 +966,49 @@ static void adjElevation(GpsTrk *pTrk, TrkPt *p1, TrkPt *p2)
     }
     adjElev = p1->elevation + p2->rise;
     if (adjElev != p2->elevation) {
+        //fprintf(stderr, "%s: index=%d before=%.3lf after=%.3lf\n", __func__, p2->index, p2->elevation, adjElev);
         p2->elevation = adjElev;
         pTrk->numElevAdj++;
     }
 }
+#else
+// Given a fixed "run" and a desired grade value, figure
+// out the "rise", and adjust the elevation and "dist"
+// values as needed.
+//
+//   rise = run * grade;
+//   dist = sqrt(run^2 + rise^2);
+//
+static void adjElevation(GpsTrk *pTrk, TrkPt *p1, TrkPt *p2)
+{
+    double run = p2->run;
+    double rise = run * (p2->grade / 100.0);
+    double dist = sqrt((run * run) + (rise * rise));
+    double adjElev;
+
+    adjElev = p1->elevation + rise;
+    if (adjElev != p2->elevation) {
+        //fprintf(stderr, "%s: index=%d before=%.3lf after=%.3lf\n", __func__, p2->index, p2->elevation, adjElev);
+        p2->rise = rise;
+        p2->dist = dist;
+        p2->elevation = adjElev;
+        //if (p2->deltaT != 0.0) {
+        //    p2->speed = (p2->dist / p2->deltaT);
+        //}
+        pTrk->numElevAdj++;
+    }
+}
+#endif
 
 static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
 {
     TrkPt *p1 = TAILQ_FIRST(&pTrk->trkPtList);  // previous TrkPt
     TrkPt *p2 = TAILQ_NEXT(p1, tqEntry);    // current TrkPt
-    double deltaG;
 
     while (p2 != NULL) {
+        // The following adjustments are done regardless
+        // of the --verbatim option, but only to the set
+        // of points in the specified range...
         if (pointWithinRange(pArgs, p2)) {
             // Do we need to smooth out any values, other
             // than elevation (which we already did) ?
@@ -930,20 +1025,29 @@ static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
             if ((pArgs->minGrade != 0.0) && (p2->grade < pArgs->minGrade)) {
                 adjMinGrade(pTrk, pArgs, p1, p2);
             }
-        }
 
-        // See if we need to limit the max grade change
-        deltaG = fabs(p2->grade - p1->grade);
-        if ((pArgs->maxGradeChange != 0.0) && (deltaG > pArgs->maxGradeChange)) {
-            adjGradeChange(pTrk, pArgs, p1, p2);
-            deltaG = pArgs->maxGradeChange;
+            // See if we need to limit the max grade change
+            p2->deltaG = fabs(p2->grade - p1->grade);
+            if ((pArgs->maxGradeChange != 0.0) && (p2->deltaG > pArgs->maxGradeChange)) {
+                adjGradeChange(pTrk, pArgs, p1, p2);
+            }
+
+            // Update the max grade change
+            if (p2->deltaG > pTrk->maxDeltaG) {
+                pTrk->maxDeltaG = p2->deltaG;
+                pTrk->maxDeltaGTrkPt = p2;
+            }
+
+            // See if we need to limit the max speed change
+            p2->deltaS = (fabs(p2->speed - p1->speed) / fabs(p1->speed)) * 100.0;
+            if ((pArgs->maxSpeedChange != 0.0) && (p2->deltaS > pArgs->maxSpeedChange)) {
+                adjSpeedChange(pTrk, pArgs, p1, p2);
+            }
         }
 
         // If necessary, correct the elevation value based
-        // on the adjusted grade value. We need to adjust
-        // the "rise" value, while the "run" value remains
-        // the same.
-        if (p2->adjGrade) {
+        // on the adjusted grade value.
+        if (!pArgs->noElevAdj && p2->adjGrade) {
             adjElevation(pTrk, p1, p2);
         }
 
@@ -962,11 +1066,6 @@ static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
         pTrk->heartRate += p2->heartRate;
         pTrk->power += p2->power;
         pTrk->temp += p2->ambTemp;
-
-        if (deltaG > pTrk->maxDeltaG) {
-            pTrk->maxDeltaG = deltaG;
-            pTrk->maxDeltaGTrkPt = p2;
-        }
 
         p2 = nxtTrkPt(&p1, p2);
     }
@@ -1080,7 +1179,7 @@ int main(int argc, char **argv)
 
     TAILQ_INIT(&gpsTrk.trkPtList);
 
-    // Process each GPX/TCX input file
+    // Process each FIT/GPX/TCX input file
     while (n < argc) {
         const char *fileSuffix;
         int s;
@@ -1158,6 +1257,10 @@ int main(int argc, char **argv)
     // Set the activity's start time
     gpsTrk.startTime = pTrkPt->timestamp;
 
+    // Set the base distance reference used to generate
+    // relative distance values.
+    gpsTrk.baseDistance = pTrkPt->distance;
+
     // If necessary, set the base time reference used to
     // generate relative timestamps in the CSV output data.
     if (cmdArgs.relTime) {
@@ -1173,9 +1276,9 @@ int main(int argc, char **argv)
         closeTimeGap(&gpsTrk, &cmdArgs);
     }
 
-    // If requested, smooth the elevation values before we
-    // compute the speed and grade, so as to minimize the
-    // errors.
+    // If requested, smooth out the elevation values before
+    // we compute the speed and grade, so as to minimize the
+    // computational errors.
     if ((cmdArgs.xmaWindow != 0) && (cmdArgs.xmaMetric == elevation)) {
         smoothElev(&gpsTrk, &cmdArgs);
     }

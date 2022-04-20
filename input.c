@@ -73,7 +73,7 @@ int parseFitFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
     FIT_MANUFACTURER manufacturer = FIT_MANUFACTURER_INVALID;
     struct tm brkDwnTime = {0};
     time_t timeStampOffset;
-    Bool timerRunning = false;
+    Bool timerRunning = true;
 
     // Compute the UTC of the Garmin Epoch
     strptime(garminEpoch, "%Y-%m-%dT%H:%M:%S", &brkDwnTime);
@@ -246,6 +246,10 @@ int parseFitFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
                                 pTrkPt->speed = ((double) record->enhanced_speed / 1000.0);  // in m/s
                             } else if (record->speed != FIT_UINT16_INVALID) {
                                 pTrkPt->speed = ((double) record->speed / 1000.0);  // in m/s
+                            }
+
+                            if (record->grade != FIT_SINT16_INVALID) {
+                                pTrkPt->grade = record->grade;
                             }
 
                             if (record->temperature != FIT_SINT8_INVALID) {
@@ -782,7 +786,7 @@ int parseTcxFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
             }
         } else if (trackBlock) {
             double latitude, longitude, elevation;
-            double distance, speed;
+            double distance, grade, speed;
             struct tm brkDwnTime = {0};
             int cadence, heartRate, power;
             const char *p;
@@ -849,6 +853,13 @@ int parseTcxFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
                 }
 
                 pTrkPt->timestamp = (double) timeStamp + ((double) ms / 1000.0);  // sec+millisec since the Epoch
+            } else if (sscanf(lineBuf, " <GradePercent>%le</GradePercent>", &grade) == 1) {
+                // Got the grade!
+                if (pTrkPt == NULL) {
+                    // Hu?
+                    noActTrkPt(inFile, lineNum, lineBuf);
+                }
+                pTrkPt->grade = grade;
             } else if ((sscanf(lineBuf, " <ns3:Speed>%le<ns3:/Speed>", &speed) == 1) ||
                        (sscanf(lineBuf, " <Speed>%le</Speed>", &speed) == 1)) {
                 // Got the speed!

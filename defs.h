@@ -67,7 +67,8 @@ typedef enum XmaMethod {
 typedef enum XmaMetric {
     elevation = 1,      // elevation
     grade = 2,          // grade
-    power = 3           // power
+    power = 3,          // power
+    speed = 4,          // speed
 } XmaMetric;
 
 // Sensor data bit masks
@@ -84,18 +85,18 @@ typedef struct TrkPt {
 
     int index;          // TrkPt index (0..N-1)
 
-    int lineNum;        // line number in the input GPX/TCX file
-    const char *inFile; // input GPX/TCX file this trkpt came from
+    int lineNum;        // line number in the input FIT/GPX/TCX file
+    const char *inFile; // input FIT/GPX/TCX file this trkpt came from
 
-    // Timestamp from GPX/TCX file
+    // Timestamp from FIT/GPX/TCX file
     double timestamp;   // in seconds+millisec since the Epoch
 
-    // GPS data from GPX/TCX file
+    // GPS data from FIT/GPX/TCX file
     double latitude;    // in degrees decimal
     double longitude;   // in degrees decimal
     double elevation;   // in meters
 
-    // Extra data from GPX/TCX file
+    // Extra data from FIT/GPX/TCX file
     int ambTemp;        // ambient temperature (in degrees Celsius)
     int cadence;        // pedaling cadence (in RPM)
     int heartRate;      // heart rate (in BPM)
@@ -106,13 +107,15 @@ typedef struct TrkPt {
     // Computed metrics
     Bool adjGrade;      // grade was adjusted
     double adjTime;     // adjusted timestamp
+    double deltaG;      // grade diff with previous point (in %)
+    double deltaS;      // speed diff with previous point (in m/s)
     double deltaT;      // time diff with previous point (in seconds)
     double dist;        // distance traveled from previous point (in meters)
     double rise;        // elevation diff from previous point (in meters)
     double run;         // horizontal distance from previous point (in meters)
 
     double bearing;     // initial bearing / forward azimuth (in decimal degrees)
-    double grade;       // actual grade (in percentage)
+    double grade;       // actual grade (in %)
 } TrkPt;
 
 // GPS Track (sequence of Track Points)
@@ -148,8 +151,9 @@ typedef struct GpsTrk {
     double startTime;
     double endTime;
 
-    // Base time
-    double baseTime;                // time reference to generate relative timestamps
+    // Base distance/time
+    double baseDistance;            // distance reference to generate relative distance values
+    double baseTime;                // time reference to generate relative timestamp values
 
     // Time offset
     double timeOffset;              // to set/change the activity's start time
@@ -218,6 +222,7 @@ typedef struct CmdArgs {
     int closeGap;           // close the time gap at the specified track point
     double maxGrade;        // max grade allowed (in %)
     double maxGradeChange;  // max grade change allowed between points (in %)
+    double maxSpeedChange;  // max speed change allowed between points (in %)
     double minGrade;        // min grade allowed (in %)
     const char *name;       // <name> tag
     FILE *outFile;          // output file
@@ -232,6 +237,7 @@ typedef struct CmdArgs {
     XmaMetric xmaMetric;    // metric to use for the SMA/WMA
     int xmaWindow;          // size of the SMA/WMA window
     double startTime;       // start time for the activity
+    Bool noElevAdj;         // do not auto-adjust the elevation
     Bool summary;           // show data summary
     Bool trim;              // trim points
     Bool verbatim;          // no data adjustments

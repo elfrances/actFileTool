@@ -18,6 +18,7 @@
 #define CONST_H_
 
 extern const double nilElev;            // nil/undefined elevation
+extern const double nilGrade;           // nil/undefined grade/slope
 extern const double degToRad;           // decimal degrees to radians
 extern const double earthMeanRadius;    // Mean radius of Earth, in meters
 

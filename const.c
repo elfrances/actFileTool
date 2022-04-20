@@ -17,6 +17,9 @@
 // This constant indicates a nil elevation
 const double nilElev = -9999.99; // 10,000 meters below sea level! :)
 
+// This constant indicates a nil grade/slope
+const double nilGrade = -99.99;  // Free fall! :)
+
 const double degToRad = (double) 0.01745329252;  // decimal degrees to radians
 const double earthMeanRadius = (double) 6372797.560856;  // in meters
 
