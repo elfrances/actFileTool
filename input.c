@@ -40,8 +40,8 @@ static int getLine(FILE *fp, char *lineBuf, size_t bufLen, int lineNum)
 
         //fprintf(stdout, "%u: %s", lineNum, lineBuf);
 
-        // Skip comment lines
-        if (strstr(lineBuf, "<!--") == NULL)
+        // Skip blank and XML comment lines
+        if ((lineBuf[0] != '\0') && (strstr(lineBuf, "<!--") == NULL))
             break;
     }
 
@@ -59,7 +59,80 @@ static void noActTrkPt(const char *inFile, int lineNum, const char *lineBuf)
     spongExit("No active TrkPt !!!", inFile, lineNum, lineBuf);
 }
 
-static const char *garminEpoch = "1990-12-31T00:00:00Z";
+static const char *garminEpoch = "1989-12-31T00:00:00Z";
+
+// Parse the CSV file and create a list of Track Points (TrkPt's)
+int parseCsvFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
+{
+    FILE *fp;
+    int lineNum = 0;
+    static char lineBuf[1024];
+    size_t bufLen = sizeof (lineBuf);
+
+    // Open the CSV file for reading
+    if ((fp = fopen(inFile, "r")) == NULL) {
+        fprintf(stderr, "Failed to open input file %s\n", inFile);
+        return -1;
+    }
+
+    // Validate the input file. Expected format is:
+    //
+    // <trkpt>,<inFile>,<line#>,<time>,<lat>,<lon>,<ele>,...
+    //   .
+    //   .
+    //   .
+    //
+    lineNum = getLine(fp, lineBuf, bufLen, lineNum);
+    if ((lineNum < 0) ||
+        (strncmp(lineBuf, csvBannerLine, strlen(csvBannerLine)) != 0)) {
+        fprintf(stderr, "Input file is not a CSV file !!!\n");
+        return -1;
+    }
+
+    // Process one line at a time...
+    while ((lineNum = getLine(fp, lineBuf, bufLen, lineNum)) != -1) {
+        TrkPt *pTrkPt = NULL;
+        const char *p = lineBuf;
+        time_t timestamp;
+        double dummy;
+
+        // Alloc and init new TrkPt object
+        if ((pTrkPt = newTrkPt(pTrk->numTrkPts++, inFile, lineNum)) == NULL) {
+            fprintf(stderr, "Failed to create TrkPt object !!!\n");
+            return -1;
+        }
+
+        // Skip the first 3 columns: "<trkpt>,<inFile>,<line#>,"
+        for (int n = 0; n < 3; n++, p++) {
+            if ((p = strchr(p, ',')) == NULL) {
+                fprintf(stderr, "Failed to parse line: %s !!!\n", p);
+                return -1;
+            }
+        }
+
+        // Parse the columns: "<time>,<lat>,<lon>,<ele>,<power>,<atemp>,<cadence>,<hr>,<run>,<rise>,<dist>,<distance>,<speed>,<grade>"
+        if (sscanf(p, "%ld,%le,%le,%le,%d,%d,%d,%d,%le,%le,%le,%le,%le,%le",
+                   &timestamp, &pTrkPt->latitude, &pTrkPt->longitude, &pTrkPt->elevation,
+                   &pTrkPt->power, &pTrkPt->ambTemp, &pTrkPt->cadence, &pTrkPt->heartRate,
+                   &dummy, &dummy, &dummy,
+                   &pTrkPt->distance, &pTrkPt->speed, &pTrkPt->grade) != 14) {
+            fprintf(stderr, "Failed to parse line: %s !!!\n", p);
+            return -1;
+        }
+
+        pTrkPt->timestamp = (double) timestamp;
+
+        // Insert track point at the tail of the queue and update
+        // the TrkPt count.
+        TAILQ_INSERT_TAIL(&pTrk->trkPtList, pTrkPt, tqEntry);
+
+        pTrkPt = NULL;
+    }
+
+    fclose(fp);
+
+    return 0;
+}
 
 // Parse the FIT file and create a list of Track Points (TrkPt's)
 int parseFitFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)

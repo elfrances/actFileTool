@@ -38,19 +38,21 @@ static const char *tcxHeader = "<TrainingCenterDatabase\n"
                                "  xmlns=\"http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2\"\n"
                                "  xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:ns4=\"http://www.garmin.com/xmlschemas/ProfileExtension/v1\">\n";
 
-static const char *fmtTimeStamp(time_t ts, TsFmt fmt)
+static const char *fmtTimeStamp(time_t ts, time_t baseTime, TsFmt fmt)
 {
     static char fmtBuf[64];
 
     if (fmt == hms) {
-        time_t time = ts;
+        time_t time = (ts - baseTime);
         int hr, min, sec;
         hr = time / 3600;
         min = (time - (hr * 3600)) / 60;
         sec = (time - (hr * 3600) - (min * 60));
-        snprintf(fmtBuf, sizeof (fmtBuf), "%02d:%02d:%02d", hr, min, sec);
+        snprintf(fmtBuf, sizeof (fmtBuf), "%02d:%02d:%02d", hr, min, sec);  // HH:MM:SS since the start of the activity
+    } else if (fmt == sec) {
+        snprintf(fmtBuf, sizeof (fmtBuf), "%ld", (ts - baseTime));  // seconds since the start of the activity
     } else {
-        snprintf(fmtBuf, sizeof (fmtBuf), "%ld", ts);
+        snprintf(fmtBuf, sizeof (fmtBuf), "%ld", ts);   // seconds since the Epoch
     }
 
     return fmtBuf;
@@ -84,19 +86,19 @@ static void printSummary(GpsTrk *pTrk, CmdArgs *pArgs)
 
     // Elapsed time
     time = pTrk->endTime - pTrk->startTime;
-    fprintf(pArgs->outFile, "    elapsedTime: %s\n", fmtTimeStamp(time, hms));
+    fprintf(pArgs->outFile, "    elapsedTime: %s\n", fmtTimeStamp(time, 0, hms));
 
     // Total time
     time = pTrk->time;
-    fprintf(pArgs->outFile, "      totalTime: %s\n", fmtTimeStamp(time, hms));
+    fprintf(pArgs->outFile, "      totalTime: %s\n", fmtTimeStamp(time, 0, hms));
 
     // Moving time
     time = pTrk->time - pTrk->stoppedTime;
-    fprintf(pArgs->outFile, "     movingTime: %s\n", fmtTimeStamp(time, hms));
+    fprintf(pArgs->outFile, "     movingTime: %s\n", fmtTimeStamp(time, 0, hms));
 
     // Stopped time
     time = pTrk->stoppedTime;
-    fprintf(pArgs->outFile, "    stoppedTime: %s\n", fmtTimeStamp(time, hms));
+    fprintf(pArgs->outFile, "    stoppedTime: %s\n", fmtTimeStamp(time, 0, hms));
 
     fprintf(pArgs->outFile, "       distance: %.3lf km\n", mToKm(pTrk->distance));
     fprintf(pArgs->outFile, "       elevGain: %.3lf m\n", pTrk->elevGain);
@@ -183,71 +185,46 @@ static void printSummary(GpsTrk *pTrk, CmdArgs *pArgs)
     }
 }
 
-#if 1
-// Compact output
+// NOTE: if you change the format of the CSV output, make sure
+// you also change the expected format in parseCsvFile() !!!
 static void printCsvFmt(GpsTrk *pTrk, CmdArgs *pArgs)
 {
     TrkPt *p;
 
     // Print column banner line
-    fprintf(pArgs->outFile, "<trkpt>,<inFile>,<line#>,<time>,<distance>,<elevation>,<speed>,<grade>,<deltaS>,<deltaG>\n");
+    fprintf(pArgs->outFile, "%s\n", csvBannerLine);
 
     TAILQ_FOREACH(p, &pTrk->trkPtList, tqEntry) {
         double timeStamp = (p->adjTime != 0.0) ? p->adjTime : p->timestamp;    // use the adjusted timestamp if there is one
         double distance = p->distance - pTrk->baseDistance;
 
-        fprintf(pArgs->outFile, "%d,%s,%d,%s,%.3lf,%.3lf,%.3lf,%.3lf,%.3lf,%.3lf\n",
+        fprintf(pArgs->outFile, "%d,%s,%d,",
                 p->index,                       // <trkPt>
                 p->inFile,                      // <inFile>
-                p->lineNum,                     // <line#>
-                fmtTimeStamp((timeStamp - pTrk->baseTime), pArgs->relTime),   // <time>
-                mToKm(distance),                // <distance> [km]
-                p->elevation,                   // <elevation> [m]
-                mpsToKph(p->speed),             // <speed> [km/h]
-                p->grade,                       // <grade> [%]
-                p->deltaS,
-                p->deltaG);
-    }
-}
-#else
-// Detailed output
-static void printCsvFmt(GpsTrk *pTrk, CmdArgs *pArgs)
-{
-    TrkPt *p;
-
-    // Print column banner line
-    fprintf(pArgs->outFile, "<trkpt>,<inFile>,<line#>,<time>,<lat>,<lon>,<ele>,");
-    fprintf(pArgs->outFile, "<power>,<atemp>,<cadence>,<hr>,<deltaT>,<run>,<rise>,<dist>,<distance>,<speed>,<grade>,<deltaG>\n");
-
-    TAILQ_FOREACH(p, &pTrk->trkPtList, tqEntry) {
-        TrkPt *prev = TAILQ_PREV(p, TrkPtList, tqEntry);
-        double timeStamp = (p->adjTime != 0.0) ? p->adjTime : p->timestamp;    // use the adjusted timestamp if there is one
-        double distance = p->distance - pTrk->baseDistance;
-
-        fprintf(pArgs->outFile, "%d,%s,%d,%s,%.10lf,%.10lf,%.10lf,",
-                p->index,                       // <trkPt>
-                p->inFile,                      // <inFile>
-                p->lineNum,                     // <line#>
-                fmtTimeStamp((timeStamp - pTrk->baseTime), pArgs->relTime),   // <time>
+                p->lineNum);                    // <line#>
+        fprintf(pArgs->outFile, "%s,",
+                fmtTimeStamp(timeStamp, pTrk->baseTime, pArgs->tsFmt));   // <time>
+        fprintf(pArgs->outFile, "%.10lf,%.10lf,%.3lf,",
                 p->latitude,                    // <lat>
                 p->longitude,                   // <lon>
                 p->elevation);                  // <ele>
-        fprintf(pArgs->outFile, "%d,%d,%d,%d,%.10lf,%.3lf,%.10lf,%.10lf,%.10lf,%.10lf,%.2lf,%.2lf\n",
+        fprintf(pArgs->outFile, "%d,%d,%d,%d,",
                 p->power,                       // <power>
                 p->ambTemp,                     // <atemp>
                 p->cadence,                     // <cadence>
-                p->heartRate,                   // <hr>
-                p->deltaT,                      // <deltaT>
+                p->heartRate);                  // <hr>
+        fprintf(pArgs->outFile, "%.3lf,%.3lf,%.3lf,%.3lf,%.3lf,%.3lf,%.3f,%.3lf,%.3lf\n",
                 p->run,                         // <run>
                 p->rise,                        // <rise>
                 p->dist,                        // <dist>
                 mToKm(distance),                // <distance> [km]
                 mpsToKph(p->speed),             // <speed> [km/h]
                 p->grade,                       // <grade> [%]
-                (prev != NULL) ? fabs(p->grade - prev->grade) : 0);
+                p->deltaG,                      // <deltaG> [%]
+                p->deltaS,                      // <deltaS> [km/h]
+                p->deltaT);                     // <deltaT> [s]
     }
 }
-#endif
 
 static int gpxActType(GpsTrk *pTrk, CmdArgs *pArgs)
 {
@@ -389,7 +366,7 @@ static void printShizFmt(GpsTrk *pTrk, CmdArgs *pArgs)
     // Duration is in hh:mm:ss, distance is in kilometers,
     // elevation is in meters, and speed is in km/h.
     fprintf(pArgs->outFile, "{\"extra\":{\"duration\":\"%s\",\"distance\":%.5lf,\"toughness\":\"%d\",\"elevation_gain\":%u,\"date_processed\":\"%s\",\"speed_filter\":\"%d\",\"elevation_filter\":\"%d\",\"grade_filter\":\"%d\",\"timeshift\":\"%d\"},\"gpx\":{\"trk\":{\"trkseg\":{\"trkpt\":[",
-            fmtTimeStamp((endTime - startTime), hms), mToKm(pTrk->distance), toughness, (unsigned) pTrk->elevGain, dateBuf, speed_filter, elevation_filter, grade_filter, timeshift);
+            fmtTimeStamp((endTime - startTime), 0, hms), mToKm(pTrk->distance), toughness, (unsigned) pTrk->elevGain, dateBuf, speed_filter, elevation_filter, grade_filter, timeshift);
 
     TAILQ_FOREACH(p, &pTrk->trkPtList, tqEntry) {
         // The first "trkpt" is included in the header line,
@@ -397,7 +374,7 @@ static void printShizFmt(GpsTrk *pTrk, CmdArgs *pArgs)
         // lines...
 
         fprintf(pArgs->outFile, "{\"-lon\":\"%.7lf\",\"-lat\":\"%.7lf\",\"speed\":\"%.1lf\",\"ele\":\"%.3lf\",\"distance\":\"%.5lf\",\"bearing\":\"%.2lf\",\"slope\":\"%.1lf\",\"time\":\"%s\",\"index\":%u,\"cadence\":%u,\"p\":%u}%s",
-                p->longitude, p->latitude, mpsToKph(p->speed), p->elevation, mToKm(p->distance), p->bearing, p->grade, fmtTimeStamp((p->timestamp - startTime), hms), p->index, p->cadence, 0, (TAILQ_NEXT(p, tqEntry) != NULL) ? ",\n" : "");
+                p->longitude, p->latitude, mpsToKph(p->speed), p->elevation, mToKm(p->distance), p->bearing, p->grade, fmtTimeStamp((p->timestamp - startTime), 0, hms), p->index, p->cadence, 0, (TAILQ_NEXT(p, tqEntry) != NULL) ? ",\n" : "");
     }
 
     fprintf(pArgs->outFile, "]}},\"seg\":[]}}\n");

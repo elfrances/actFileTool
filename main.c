@@ -97,6 +97,10 @@ static const char *help =
         "        output file inherits the activity type of the input file.\n"
         "    --close-gap <point>\n"
         "        Close the time gap at the specified track point.\n"
+        "    --csv-time-format {hms|sec|utc}\n"
+        "        Specifies the format of the timestamp value in the CSV output.\n"
+        "        'hms' and 'sec' imply relative timestamps, while 'utc' implies\n"
+        "        absolute timestamps.\n"
         "    --help\n"
         "        Show this help and exit.\n"
         "    --max-grade <value>\n"
@@ -135,9 +139,6 @@ static const char *help =
         "    --range <a,b>\n"
         "        Limit the track points to be processed to the range between point\n"
         "        'a' and point 'b', inclusive.\n"
-        "    --rel-time {sec|hms}\n"
-        "        Use relative timestamps in the CSV output, using the specified\n"
-        "        format.\n"
         "    --set-speed <avg-speed>\n"
         "        Use the specified average speed value (in km/h) to generate missing\n"
         "        timestamps, or to replace the existing timestamps, in the input file.\n"
@@ -189,6 +190,10 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
     pArgs->xmaMethod = simple;
     pArgs->xmaMetric = elevation;
 
+    // By default no max/min grade limits
+    pArgs->maxGrade = nilGrade;
+    pArgs->minGrade = nilGrade;
+
     for (n = 1, numArgs = argc -1; n <= numArgs; n++) {
         const char *arg;
         const char *val;
@@ -219,6 +224,18 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
         } else if (strcmp(arg, "--close-gap") == 0) {
             val = argv[++n];
             if (sscanf(val, "%d", &pArgs->closeGap) != 1) {
+                invalidArgument(arg, val);
+                return -1;
+            }
+        } else if (strcmp(arg, "--cvs-time-format") == 0) {
+            val = argv[++n];
+            if (strcmp(val, "hms") == 0) {
+                pArgs->tsFmt = hms;
+            } else if (strcmp(val, "sec") == 0) {
+                pArgs->tsFmt = sec;
+            } else if (strcmp(val, "utc") == 0) {
+                pArgs->tsFmt = utc;
+            } else {
                 invalidArgument(arg, val);
                 return -1;
             }
@@ -302,16 +319,6 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
                 fprintf(stderr, "Invalid TrkPt range %d,%d\n", pArgs->rangeFrom, pArgs->rangeTo);
                 return -1;
             }
-        } else if (strcmp(arg, "--rel-time") == 0) {
-            val = argv[++n];
-            if (strcmp(val, "sec") == 0) {
-                pArgs->relTime = sec;
-            } else if (strcmp(val, "hms") == 0) {
-                pArgs->relTime = hms;
-            } else {
-                invalidArgument(arg, val);
-                return -1;
-            }
         } else if (strcmp(arg, "--set-speed") == 0) {
             val = argv[++n];
             if (sscanf(val, "%le", &pArgs->setSpeed) != 1) {
@@ -334,7 +341,6 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
             pArgs->startTime = (double) time0;
         } else if (strcmp(arg, "--summary") == 0) {
             pArgs->summary = true;
-            pArgs->relTime = sec;   // force relative timestamps
         } else if (strcmp(arg, "--trim") == 0) {
             pArgs->trim = true;
         } else if (strcmp(arg, "--verbatim") == 0) {
@@ -693,7 +699,7 @@ static double compBearing(const TrkPt *p1, const TrkPt *p2)
     return fmod((theta / degToRad + 360.0), 360.0); // in degrees decimal (0-359.99)
 }
 
-static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
+static int compMetrics(GpsTrk *pTrk, CmdArgs *pArgs)
 {
     TrkPt *p1 = TAILQ_FIRST(&pTrk->trkPtList);  // previous TrkPt
     TrkPt *p2 = TAILQ_NEXT(p1, tqEntry);    // current TrkPt
@@ -840,7 +846,7 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
             pTrk->maxDeltaTTrkPt = p2;
         }
 
-        if (p2->speed == 0.0) {
+        if (p2->speed == nilSpeed) {
             // Compute the speed as "distance over time"
             p2->speed = p2->dist / p2->deltaT;
         }
@@ -870,6 +876,9 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
         // Compute the bearing
         p2->bearing = compBearing(p1, p2);
 
+        // Compute the grade change
+        p2->deltaG = fabs(p2->grade - p1->grade);
+
         // Update the activity's end time
         pTrk->endTime = p2->timestamp;
 
@@ -878,7 +887,6 @@ static int compDataPhase1(GpsTrk *pTrk, CmdArgs *pArgs)
 
     return 0;
 }
-
 
 static void adjMaxGrade(GpsTrk *pTrk, CmdArgs *pArgs, TrkPt *p1, TrkPt *p2)
 {
@@ -926,6 +934,7 @@ static void adjGradeChange(GpsTrk *pTrk, CmdArgs *pArgs, TrkPt *p1, TrkPt *p2)
     p2->adjGrade = true;
 }
 
+#if 0
 static void adjSpeedChange(GpsTrk *pTrk, CmdArgs *pArgs, TrkPt *p1, TrkPt *p2)
 {
     double maxSpeedChange = (p1->speed * pArgs->maxSpeedChange) / 100.0;
@@ -942,6 +951,7 @@ static void adjSpeedChange(GpsTrk *pTrk, CmdArgs *pArgs, TrkPt *p1, TrkPt *p2)
         p2->speed = p1->speed - maxSpeedChange;
     }
 }
+#endif
 
 #if 0
 // Given a fixed distance (dist) figure out what the
@@ -1000,6 +1010,60 @@ static void adjElevation(GpsTrk *pTrk, TrkPt *p1, TrkPt *p2)
 }
 #endif
 
+static int limitGrade(GpsTrk *pTrk, CmdArgs *pArgs)
+{
+    TrkPt *p1 = TAILQ_FIRST(&pTrk->trkPtList);  // previous TrkPt
+    TrkPt *p2 = TAILQ_NEXT(p1, tqEntry);    // current TrkPt
+
+    while (p2 != NULL) {
+        // The following adjustments are done regardless
+        // of the --verbatim option, but only to the set
+        // of points in the specified range...
+        if (pointWithinRange(pArgs, p2)) {
+            // See if we need to limit the max grade values
+            if ((pArgs->maxGrade != nilGrade) && (p2->grade > pArgs->maxGrade)) {
+                adjMaxGrade(pTrk, pArgs, p1, p2);
+            }
+
+            // See if we need to limit the min grade values
+            if ((pArgs->minGrade != nilGrade) && (p2->grade < pArgs->minGrade)) {
+                adjMinGrade(pTrk, pArgs, p1, p2);
+            }
+
+            // See if we need to limit the max grade change
+            if ((pArgs->maxGradeChange != 0.0) && (p2->deltaG > pArgs->maxGradeChange)) {
+                adjGradeChange(pTrk, pArgs, p1, p2);
+            }
+        }
+
+        p2 = nxtTrkPt(&p1, p2);
+    }
+
+    return 0;
+}
+
+static int adjElev(GpsTrk *pTrk, CmdArgs *pArgs)
+{
+    TrkPt *p1 = TAILQ_FIRST(&pTrk->trkPtList);  // previous TrkPt
+    TrkPt *p2 = TAILQ_NEXT(p1, tqEntry);    // current TrkPt
+
+    while (p2 != NULL) {
+        // The following adjustments are done regardless
+        // of the --verbatim option, but only to the set
+        // of points in the specified range...
+        if (pointWithinRange(pArgs, p2)) {
+            if (p2->adjGrade) {
+                adjElevation(pTrk, p1, p2);
+            }
+        }
+
+        p2 = nxtTrkPt(&p1, p2);
+    }
+
+    return 0;
+}
+
+#if 0
 static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
 {
     TrkPt *p1 = TAILQ_FIRST(&pTrk->trkPtList);  // previous TrkPt
@@ -1072,8 +1136,9 @@ static int compDataPhase2(GpsTrk *pTrk, CmdArgs *pArgs)
 
     return 0;
 }
+#endif
 
-static int compDataPhase3(GpsTrk *pTrk, CmdArgs *pArgs)
+static int compMinMax(GpsTrk *pTrk, CmdArgs *pArgs)
 {
     TrkPt *p1 = TAILQ_FIRST(&pTrk->trkPtList);  // previous TrkPt
     TrkPt *p2 = TAILQ_NEXT(p1, tqEntry);    // current TrkPt
@@ -1159,6 +1224,28 @@ static int compDataPhase3(GpsTrk *pTrk, CmdArgs *pArgs)
             pTrk->minGradeTrkPt = p2;
         }
 
+        // Update the max grade change
+        if (p2->deltaG > pTrk->maxDeltaG) {
+            pTrk->maxDeltaG = p2->deltaG;
+            pTrk->maxDeltaGTrkPt = p2;
+        }
+
+        // Update the rolling elevation gain/loss values
+        if (p2->rise >= 0.0) {
+            pTrk->elevGain += p2->rise;
+        } else {
+            pTrk->elevLoss += fabs(p2->rise);
+        }
+
+        // Update the rolling cadence, grade, heart rate,
+        // power, and temp values used to compute the
+        // averages for the activity.
+        pTrk->cadence += p2->cadence;
+        pTrk->grade += p2->grade;
+        pTrk->heartRate += p2->heartRate;
+        pTrk->power += p2->power;
+        pTrk->temp += p2->ambTemp;
+
         p2 = nxtTrkPt(&p1, p2);
     }
 
@@ -1188,7 +1275,9 @@ int main(int argc, char **argv)
             fprintf(stderr, "Unsupported input file %s\n", cmdArgs.inFile);
             return -1;
         }
-        if (strcmp(fileSuffix, ".fit") == 0) {
+        if (strcmp(fileSuffix, ".csv") == 0) {
+            s = parseCsvFile(&cmdArgs, &gpsTrk, cmdArgs.inFile);
+        } else if (strcmp(fileSuffix, ".fit") == 0) {
             s = parseFitFile(&cmdArgs, &gpsTrk, cmdArgs.inFile);
         } else if (strcmp(fileSuffix, ".gpx") == 0) {
             s = parseGpxFile(&cmdArgs, &gpsTrk, cmdArgs.inFile);
@@ -1263,7 +1352,7 @@ int main(int argc, char **argv)
 
     // If necessary, set the base time reference used to
     // generate relative timestamps in the CSV output data.
-    if (cmdArgs.relTime) {
+    if (cmdArgs.tsFmt != utc) {
         gpsTrk.baseTime = pTrkPt->timestamp;
     }
 
@@ -1283,17 +1372,24 @@ int main(int argc, char **argv)
         smoothElev(&gpsTrk, &cmdArgs);
     }
 
-    // Compute the speed & grade data
-    if (compDataPhase1(&gpsTrk, &cmdArgs) != 0) {
+    // Compute metrics
+    if (compMetrics(&gpsTrk, &cmdArgs) != 0) {
         fprintf(stderr, "Failed to compute speed/grade!\n");
         return -1;
     }
 
-    // Do necessary adjustments
-    compDataPhase2(&gpsTrk, &cmdArgs);
+    // If requested, limit the max/min grade values
+    if ((cmdArgs.maxGrade != nilGrade) || (cmdArgs.minGrade != nilGrade)) {
+        limitGrade(&gpsTrk, &cmdArgs);
+    }
+
+    // If needed, adjust the elevation values
+    if (!cmdArgs.noElevAdj) {
+        adjElev(&gpsTrk, &cmdArgs);
+    }
 
     // Compute min/max values
-    compDataPhase3(&gpsTrk, &cmdArgs);
+    compMinMax(&gpsTrk, &cmdArgs);
 
     // Generate the output data
     printOutput(&gpsTrk, &cmdArgs);

@@ -52,7 +52,7 @@ typedef enum OutFmt {
 
 // Timestamp format
 typedef enum TsFmt {
-    none = 0,
+    utc = 0,    // YYYY-MM-DD HH:MM:SS
     sec = 1,    // plain seconds
     hms = 2     // hh:mm:ss
 } TsFmt;
@@ -231,7 +231,7 @@ typedef struct CmdArgs {
     Bool quiet;             // don't print any warning messages
     int rangeFrom;          // start point (inclusive)
     int rangeTo;            // end point (inclusive)
-    TsFmt relTime;          // show relative timestamps in the specified format
+    TsFmt tsFmt;            // format of the timestamp value
     double setSpeed;        // speed to use to generate timestamps (in m/s)
     XmaMethod xmaMethod;    // method to compute the Moving Average
     XmaMetric xmaMetric;    // metric to use for the SMA/WMA
