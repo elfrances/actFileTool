@@ -198,11 +198,10 @@ static void printCsvFmt(GpsTrk *pTrk, CmdArgs *pArgs)
         double timeStamp = (p->adjTime != 0.0) ? p->adjTime : p->timestamp;    // use the adjusted timestamp if there is one
         double distance = p->distance - pTrk->baseDistance;
 
-        fprintf(pArgs->outFile, "%d,%s,%d,",
+        fprintf(pArgs->outFile, "%d,%s,%d,%s,",
                 p->index,                       // <trkPt>
                 p->inFile,                      // <inFile>
-                p->lineNum);                    // <line#>
-        fprintf(pArgs->outFile, "%s,",
+                p->lineNum,                     // <line#>
                 fmtTimeStamp(timeStamp, pTrk->baseTime, pArgs->tsFmt));   // <time>
         fprintf(pArgs->outFile, "%.10lf,%.10lf,%.3lf,",
                 p->latitude,                    // <lat>

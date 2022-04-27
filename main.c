@@ -227,7 +227,7 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
                 invalidArgument(arg, val);
                 return -1;
             }
-        } else if (strcmp(arg, "--cvs-time-format") == 0) {
+        } else if (strcmp(arg, "--csv-time-format") == 0) {
             val = argv[++n];
             if (strcmp(val, "hms") == 0) {
                 pArgs->tsFmt = hms;
@@ -644,7 +644,7 @@ static void compMovAvg(GpsTrk *pTrk, TrkPt *p, XmaMethod xmaMethod, XmaMetric xm
     }
 }
 
-static int smoothElev(GpsTrk *pTrk, CmdArgs *pArgs)
+static int smoothMetric(GpsTrk *pTrk, CmdArgs *pArgs)
 {
     TrkPt *p1 = TAILQ_FIRST(&pTrk->trkPtList);  // previous TrkPt
     TrkPt *p2 = TAILQ_NEXT(p1, tqEntry);    // current TrkPt
@@ -871,6 +871,13 @@ static int compMetrics(GpsTrk *pTrk, CmdArgs *pArgs)
                 }
                 p2->grade = p1->grade;  // carry over the previous grade value
             }
+        }
+
+        // Sanity check the grade value
+        if (p2->grade > 99.9) {
+            p2->grade = 99.9;
+        } else if (p2->grade < -99.9) {
+            p2->grade = -99.9;
         }
 
         // Compute the bearing
@@ -1369,7 +1376,7 @@ int main(int argc, char **argv)
     // we compute the speed and grade, so as to minimize the
     // computational errors.
     if ((cmdArgs.xmaWindow != 0) && (cmdArgs.xmaMetric == elevation)) {
-        smoothElev(&gpsTrk, &cmdArgs);
+        smoothMetric(&gpsTrk, &cmdArgs);
     }
 
     // Compute metrics
@@ -1379,8 +1386,15 @@ int main(int argc, char **argv)
     }
 
     // If requested, limit the max/min grade values
-    if ((cmdArgs.maxGrade != nilGrade) || (cmdArgs.minGrade != nilGrade)) {
+    if ((cmdArgs.maxGrade != nilGrade) ||
+        (cmdArgs.minGrade != nilGrade) ||
+        (cmdArgs.maxGradeChange != 0)) {
         limitGrade(&gpsTrk, &cmdArgs);
+    }
+
+    // If requested, smooth out the specified metric
+    if ((cmdArgs.xmaWindow != 0) && (cmdArgs.xmaMetric != elevation)) {
+        smoothMetric(&gpsTrk, &cmdArgs);
     }
 
     // If needed, adjust the elevation values

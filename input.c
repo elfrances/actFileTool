@@ -94,7 +94,7 @@ int parseCsvFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
         TrkPt *pTrkPt = NULL;
         const char *p = lineBuf;
         time_t timestamp;
-        double dummy;
+        double distance, speed, dummy;
 
         // Alloc and init new TrkPt object
         if ((pTrkPt = newTrkPt(pTrk->numTrkPts++, inFile, lineNum)) == NULL) {
@@ -115,18 +115,29 @@ int parseCsvFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
                    &timestamp, &pTrkPt->latitude, &pTrkPt->longitude, &pTrkPt->elevation,
                    &pTrkPt->power, &pTrkPt->ambTemp, &pTrkPt->cadence, &pTrkPt->heartRate,
                    &dummy, &dummy, &dummy,
-                   &pTrkPt->distance, &pTrkPt->speed, &pTrkPt->grade) != 14) {
+                   &distance, &speed, &pTrkPt->grade) != 14) {
             fprintf(stderr, "Failed to parse line: %s !!!\n", p);
             return -1;
         }
 
         pTrkPt->timestamp = (double) timestamp;
+        pTrkPt->distance = kmToM(distance); // convert to meters
+        pTrkPt->speed = kphToMps(speed);    // convert to m/s
 
-        // Insert track point at the tail of the queue and update
-        // the TrkPt count.
+        //printf("%u: time=%.3lf lat=%.10lf lon=%.10lf ele=%.3lf dst=%.3lf speed=%.3lf\n",
+        //       pTrkPt->index, pTrkPt->timestamp, pTrkPt->latitude, pTrkPt->longitude,
+        //       pTrkPt->elevation, pTrkPt->distance, pTrkPt->speed);
+
+        // Insert track point at the tail of the queue
         TAILQ_INSERT_TAIL(&pTrk->trkPtList, pTrkPt, tqEntry);
 
         pTrkPt = NULL;
+    }
+
+    // If no explicit output format has been specified,
+    // use the same format as the input file.
+    if (pArgs->outFmt == nil) {
+        pArgs->outFmt = csv;
     }
 
     fclose(fp);
@@ -345,8 +356,7 @@ int parseFitFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
                                 pTrk->inMask |= SD_POWER;
                             }
 
-                            // Insert track point at the tail of the queue and update
-                            // the TrkPt count.
+                            // Insert track point at the tail of the queue
                             TAILQ_INSERT_TAIL(&pTrk->trkPtList, pTrkPt, tqEntry);
 
                             pTrkPt = NULL;
@@ -647,8 +657,7 @@ int parseGpxFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
                 noActTrkPt(inFile, lineNum, lineBuf);
             }
 
-            // Insert track point at the tail of the queue and update
-            // the TrkPt count.
+            // Insert track point at the tail of the queue
             TAILQ_INSERT_TAIL(&pTrk->trkPtList, pTrkPt, tqEntry);
 
             pTrkPt = NULL;
@@ -976,8 +985,7 @@ int parseTcxFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
                     noActTrkPt(inFile, lineNum, lineBuf);
                 }
 
-                // Insert track point at the tail of the queue and update
-                // the TrkPt count.
+                // Insert track point at the tail of the queue
                 TAILQ_INSERT_TAIL(&pTrk->trkPtList, pTrkPt, tqEntry);
 
                 pTrkPt = NULL;

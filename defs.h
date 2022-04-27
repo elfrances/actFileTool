@@ -23,7 +23,7 @@
 
 // Program version info
 #define PROG_VER_MAJOR      1
-#define PROG_VER_MINOR      8
+#define PROG_VER_MINOR      9
 
 typedef enum Bool {
     false = 0,
@@ -248,7 +248,9 @@ extern "C" {
 #endif
 
 static __inline__ double mToKm(double m) { return (m / 1000.0); }
+static __inline__ double kmToM(double km) { return (km * 1000.0); }
 static __inline__ double mpsToKph(double mps) { return (mps * 3.6); }
+static __inline__ double kphToMps(double kph) { return (kph / 3.6); }
 
 #ifdef __cplusplus
 };
