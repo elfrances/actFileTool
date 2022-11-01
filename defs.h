@@ -23,7 +23,7 @@
 
 // Program version info
 #define PROG_VER_MAJOR      1
-#define PROG_VER_MINOR      9
+#define PROG_VER_MINOR      10
 
 typedef enum Bool {
     false = 0,
@@ -56,6 +56,12 @@ typedef enum TsFmt {
     sec = 1,    // plain seconds
     hms = 2     // hh:mm:ss
 } TsFmt;
+
+// Type of units to display
+typedef enum Units {
+    metric = 1,     // meters, kph, celsius
+    imperial = 2,   // feet, mph, farenheit
+} Units;
 
 // Moving Average method
 typedef enum XmaMethod {
@@ -233,13 +239,15 @@ typedef struct CmdArgs {
     int rangeTo;            // end point (inclusive)
     TsFmt tsFmt;            // format of the timestamp value
     double setSpeed;        // speed to use to generate timestamps (in m/s)
+    int trimFrom;           // start point to trim (inclusive)
+    int trimTo;             // end point to trim (inclusive)
+    Units units;            // type of units to display
     XmaMethod xmaMethod;    // method to compute the Moving Average
     XmaMetric xmaMetric;    // metric to use for the SMA/WMA
     int xmaWindow;          // size of the SMA/WMA window
     double startTime;       // start time for the activity
     Bool noElevAdj;         // do not auto-adjust the elevation
     Bool summary;           // show data summary
-    Bool trim;              // trim points
     Bool verbatim;          // no data adjustments
 } CmdArgs;
 

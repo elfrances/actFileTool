@@ -101,6 +101,8 @@ static const char *help =
         "        Specifies the format of the timestamp value in the CSV output.\n"
         "        'hms' and 'sec' imply relative timestamps, while 'utc' implies\n"
         "        absolute timestamps.\n"
+        "    --csv-units {imperial|metric}\n"
+        "        Specifies the type of units to use in the CSV output.\n"
         "    --help\n"
         "        Show this help and exit.\n"
         "    --max-grade <value>\n"
@@ -148,7 +150,7 @@ static const char *help =
         "    --summary\n"
         "        Print only a summary of the activity metrics in human-readable\n"
         "        form and exit.\n"
-        "    --trim\n"
+        "    --trim <a,b>\n"
         "        Trim all the points in the specified range. The timestamps of\n"
         "        the points after point 'b' are adjusted accordingly, to avoid\n"
         "        a discontinuity in the time sequence.\n"
@@ -194,6 +196,9 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
     pArgs->maxGrade = nilGrade;
     pArgs->minGrade = nilGrade;
 
+    // By default display metric units
+    pArgs->units = metric;
+
     for (n = 1, numArgs = argc -1; n <= numArgs; n++) {
         const char *arg;
         const char *val;
@@ -235,6 +240,16 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
                 pArgs->tsFmt = sec;
             } else if (strcmp(val, "utc") == 0) {
                 pArgs->tsFmt = utc;
+            } else {
+                invalidArgument(arg, val);
+                return -1;
+            }
+        } else if (strcmp(arg, "--csv-units") == 0) {
+            val = argv[++n];
+            if (strcmp(val, "imperial") == 0) {
+                pArgs->units = imperial;
+            } else if (strcmp(val, "metric") == 0) {
+                pArgs->units = metric;
             } else {
                 invalidArgument(arg, val);
                 return -1;
@@ -342,7 +357,15 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
         } else if (strcmp(arg, "--summary") == 0) {
             pArgs->summary = true;
         } else if (strcmp(arg, "--trim") == 0) {
-            pArgs->trim = true;
+            val = argv[++n];
+            if (sscanf(val, "%d,%d", &pArgs->trimFrom, &pArgs->trimTo) != 2) {
+                invalidArgument(arg, val);
+                return -1;
+            }
+            if ((pArgs->trimFrom < 1) || (pArgs->trimFrom > pArgs->trimTo)) {
+                fprintf(stderr, "Invalid TrkPt range %d,%d\n", pArgs->trimFrom, pArgs->trimTo);
+                return -1;
+            }
         } else if (strcmp(arg, "--verbatim") == 0) {
             pArgs->verbatim = true;
         } else if (strcmp(arg, "--version") == 0) {
@@ -469,8 +492,8 @@ static int checkTrkPts(GpsTrk *pTrk, CmdArgs *pArgs)
         }
 
         // Do we need to trim out this TrkPt?
-        if (pArgs->trim) {
-            if (p2->index == pArgs->rangeFrom) {
+        if (pArgs->trimFrom) {
+            if (p2->index == pArgs->trimFrom) {
                 // Start trimming
                 if (!pArgs->quiet) {
                     fprintf(stderr, "INFO: start trimming at TrkPt #%d (%s)\n", p2->index, fmtTrkPtIdx(p2));
@@ -479,7 +502,7 @@ static int checkTrkPts(GpsTrk *pTrk, CmdArgs *pArgs)
                 pTrk->numTrimTrkPts++;
                 discTrkPt = true;
                 p0 = p1;    // set baseline
-            } else if (p2->index == pArgs->rangeTo) {
+            } else if (p2->index == pArgs->trimTo) {
                 // Stop trimming
                 if (!pArgs->quiet) {
                     fprintf(stderr, "INFO: stop trimming at TrkPt #%d (%s)\n", p2->index, fmtTrkPtIdx(p2));
@@ -849,6 +872,10 @@ static int compMetrics(GpsTrk *pTrk, CmdArgs *pArgs)
         if (p2->speed == nilSpeed) {
             // Compute the speed as "distance over time"
             p2->speed = p2->dist / p2->deltaT;
+            if (p2->speed > 27.78) {
+                fprintf(stderr, "SPONG! TrkPt #%u (%s) has a bogus speed value ! dist=%.10lf deltaT=%.3lf speed=%.3lf\n",
+                		 p2->index, fmtTrkPtIdx(p2), p2->dist, p2->deltaT, p2->speed);
+            }
         }
 
         // Update the total distance for the activity

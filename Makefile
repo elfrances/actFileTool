@@ -5,7 +5,7 @@
 #   Author:             Marcelo Mourier
 #   Created:            Sun, Mar 14, 2021 10:10:04 PM
 #
-#   Description:        This makefile is used to build the gpxFileTool
+#   Description:        This makefile is used to build the actFileTool
 #
 #
 #
@@ -37,13 +37,13 @@ $(DEP_DIR)/%.d: %.c
 $(OBJ_DIR)/%.o: %.c
 	$(CC) $(CFLAGS) -o $@ -c $<
 
-all: gpxFileTool
+all: actFileTool
 
-gpxFileTool: $(OBJECTS) Makefile
+actFileTool: $(OBJECTS) Makefile
 	$(CC) $(LDFLAGS) -o $(BIN_DIR)/$@ $(OBJECTS) -lm
 
 clean:
-	$(RM) $(OBJECTS) $(OBJ_DIR)/build_info.o $(DEP_DIR)/*.d $(BIN_DIR)/gpxFileTool
+	$(RM) $(OBJECTS) $(OBJ_DIR)/build_info.o $(DEP_DIR)/*.d $(BIN_DIR)/actFileTool
 
 include $(DEPS)
 

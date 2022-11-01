@@ -24,7 +24,7 @@
 
 static const char *xmlHeader = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
 
-static const char *gpxHeader = "<gpx creator=\"gpxFileTool\" version=\"%d.%d\"\n"
+static const char *gpxHeader = "<gpx creator=\"actFileTool\" version=\"%d.%d\"\n"
                                "  xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/11.xsd\"\n"
                                "  xmlns:ns3=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\"\n"
                                "  xmlns=\"http://www.topografix.com/GPX/1/1\"\n"
@@ -185,6 +185,26 @@ static void printSummary(GpsTrk *pTrk, CmdArgs *pArgs)
     }
 }
 
+static double csvDist(double distance, const CmdArgs *pArgs)
+{
+    return (pArgs->units == metric) ? distance : (distance * kmToMile);
+}
+
+static double csvElev(double elevation, const CmdArgs *pArgs)
+{
+    return (pArgs->units == metric) ? elevation : (elevation * meterToFoot);
+}
+
+static double csvSpeed(double speed, const CmdArgs *pArgs)
+{
+    return (pArgs->units == metric) ? speed : (speed * kmToMile);
+}
+
+static int csvTemp(int temp, const CmdArgs *pArgs)
+{
+    return (pArgs->units == metric) ? temp : (temp * 9 / 5) + 32.0;
+}
+
 // NOTE: if you change the format of the CSV output, make sure
 // you also change the expected format in parseCsvFile() !!!
 static void printCsvFmt(GpsTrk *pTrk, CmdArgs *pArgs)
@@ -199,29 +219,29 @@ static void printCsvFmt(GpsTrk *pTrk, CmdArgs *pArgs)
         double distance = p->distance - pTrk->baseDistance;
 
         fprintf(pArgs->outFile, "%d,%s,%d,%s,",
-                p->index,                       // <trkPt>
-                p->inFile,                      // <inFile>
-                p->lineNum,                     // <line#>
+                p->index,                               // <trkPt>
+                p->inFile,                              // <inFile>
+                p->lineNum,                             // <line#>
                 fmtTimeStamp(timeStamp, pTrk->baseTime, pArgs->tsFmt));   // <time>
-        fprintf(pArgs->outFile, "%.10lf,%.10lf,%.3lf,",
-                p->latitude,                    // <lat>
-                p->longitude,                   // <lon>
-                p->elevation);                  // <ele>
+        fprintf(pArgs->outFile, "%.10lf,%.10lf,%.3lf,%.3lf,%.3lf,",
+                p->latitude,                            // <lat> [decimal degrees]
+                p->longitude,                           // <lon> [decimal degrees]
+                csvElev(p->elevation, pArgs),           // <ele> [meters/feet]
+                csvDist(mToKm(distance), pArgs),        // <distance> [km/miles]
+                csvSpeed(mpsToKph(p->speed), pArgs));   // <speed> [kph/mph]
         fprintf(pArgs->outFile, "%d,%d,%d,%d,",
-                p->power,                       // <power>
-                p->ambTemp,                     // <atemp>
-                p->cadence,                     // <cadence>
-                p->heartRate);                  // <hr>
-        fprintf(pArgs->outFile, "%.3lf,%.3lf,%.3lf,%.3lf,%.3lf,%.3lf,%.3f,%.3lf,%.3lf\n",
-                p->run,                         // <run>
-                p->rise,                        // <rise>
-                p->dist,                        // <dist>
-                mToKm(distance),                // <distance> [km]
-                mpsToKph(p->speed),             // <speed> [km/h]
-                p->grade,                       // <grade> [%]
-                p->deltaG,                      // <deltaG> [%]
-                p->deltaS,                      // <deltaS> [km/h]
-                p->deltaT);                     // <deltaT> [s]
+                p->power,                               // <power> [watts]
+                csvTemp(p->ambTemp, pArgs),             // <atemp> [C/F degrees]
+                p->cadence,                             // <cadence> [RPM]
+                p->heartRate);                          // <hr> [BPM]
+        fprintf(pArgs->outFile, "%.3lf,%.3lf,%.3lf,%.3lf,%.3lf,%.3lf,%.3f\n",
+                p->run,                                 // <run> [meters/feet]
+                p->rise,                                // <rise> [meters/feet]
+                csvElev(p->dist, pArgs),                // <dist> [meters/feet]
+                p->grade,                               // <grade> [%]
+                p->deltaG,                              // <deltaG> [%]
+                p->deltaS,                              // <deltaS> [kph/mph]
+                p->deltaT);                             // <deltaT> [s]
     }
 }
 
@@ -256,7 +276,7 @@ static void printGpxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
     strftime(timeBuf, sizeof (timeBuf), "%Y-%m-%dT%H:%M:%S", gmtime_r(&now, &brkDwnTime));
     fprintf(pArgs->outFile, "  <metadata>\n");
     fprintf(pArgs->outFile, "    <name> %s </name>\n", pArgs->name);
-    fprintf(pArgs->outFile, "    <author>gpxFileTool version %d.%d [https://github.com/elfrances/gpxFileTool.git]</author>\n", PROG_VER_MAJOR, PROG_VER_MINOR);
+    fprintf(pArgs->outFile, "    <author>actFileTool version %d.%d [https://github.com/elfrances/actFileTool.git]</author>\n", PROG_VER_MAJOR, PROG_VER_MINOR);
     fprintf(pArgs->outFile, "    <desc> ");
     for (int n = 1; n < pArgs->argc; n++) {
         fprintf(pArgs->outFile, "%s ", pArgs->argv[n]);
@@ -456,7 +476,7 @@ static void printTcxFmt(GpsTrk *pTrk, CmdArgs *pArgs)
     fprintf(pArgs->outFile, "    </Activity>\n");
     fprintf(pArgs->outFile, "  </Activities>\n");
     fprintf(pArgs->outFile, "  <Author xsi:type=\"Application_t\">\n");
-    fprintf(pArgs->outFile, "    <Name>gpxFileTool https://github.com/elfrances/gpxFileTool.git</Name>\n");
+    fprintf(pArgs->outFile, "    <Name>actFileTool https://github.com/elfrances/actFileTool.git</Name>\n");
     fprintf(pArgs->outFile, "    <Build>\n");
     fprintf(pArgs->outFile, "      <Version>\n");
     fprintf(pArgs->outFile, "        <VersionMajor>%d</VersionMajor>\n", PROG_VER_MAJOR);

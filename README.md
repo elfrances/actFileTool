@@ -1,48 +1,48 @@
-# gpxFileTool
+# actFileTool
 
 ## Intro
-gpxFileTool is a simple tool for manipulating GPX and TCX files. While it is generic enough to work with any type of activity, it was developed mainly to process GPX files from *cycling* activities recorded by devices such as a Garmin Edge or Wahoo Elemnt bike computer, or by mobile apps such as Strava or RideWithGps.
+actFileTool is a simple command-line tool for manipulating activity files such as FIT/GPX/TCX. While it is generic enough to work with any type of activity, it was developed mainly to process files from *cycling* activities recorded by devices such as a Garmin Edge or Wahoo Elemnt bike computer, or by mobile apps such as Strava or RideWithGps.
  
-The GPS elevation data in these GPX files can be subject to significant errors, which result in incorrect values for the total elevation gain/loss of the ride, and in incorrect values for the grade level (slope) during a climb/descent segment of the ride.  
+The GPS elevation data in these files can be subject to significant errors, which result in incorrect values for the total elevation gain/loss of the ride, and in incorrect values for the grade level (slope) during a climb or descent segment of the ride.  
 
-Having an incorrect value for the total elevation gain/loss simply skews one's own personal statistics.  But the incorrect grade level is a problem when such GPX file is used to control an indoor cycling "smart trainer".  The bogus elevation values can result in spikes in the grade level that make the feeling of the *virtual ride* unrealistic, and in extreme cases it can suddenly **lock up** the smart trainer.
+Having an incorrect value for the total elevation gain/loss simply skews one's own personal statistics.  But the incorrect grade level is a problem when the FIT/GPX/TCX file is used to control an indoor cycling "smart trainer".  The bogus elevation values can result in spikes in the grade level that make the feeling of the *virtual ride* unrealistic, and in extreme cases it can suddenly **lock up** the smart trainer.
 
-One of the design goals for the gpxFileTool is to allow the user to correct these errors, so that the virtual ride on the smart trainer is more realistic. 
+One of the design goals for the actFileTool is to allow the user to correct these errors, so that the virtual ride on the smart trainer is more realistic. 
 
 The tool has the following features:
 
-1. Can trim out a range of points.
-2. Can smooth out the elevation or grade values.
-3. Can limit the min/max grade level.
-4. Can filter out optional sensor data.
-5. Can generate a new GPX, TCX, CSV, or SHIZ file.
+1. Can read FIT/GPX/TCX files.
+2. Can trim out a range of points.
+3. Can smooth out the elevation or grade values.
+4. Can limit the min/max grade level.
+5. Can filter out optional sensor data.
+6. Can generate a new GPX, TCX, CSV, or SHIZ file.
 
 Trimming out a range of points is useful to remove such things as "red light", "photo shot", or "nature break" stops during a ride.
 
-Smoothing out the elevation or grade values is the main task when preparing a GPX file for a virtual route. The tool uses a Simple Moving Average (SMA) algorithm, over a configurable range of points, to do the elevation smoothing.
+Smoothing out the elevation or grade values is the main task when preparing a FIT/GPX/TCX file for a virtual route. The tool uses a Simple Moving Average (SMA) algorithm, over a configurable range of points, to do the smoothing.
 
 Limiting the min/max grade levels is useful when the user knows *a priori* what those limits are for the given route.
 
 Filtering out optional metrics is useful to remove unwanted sensor data, such as cadence, heart rate, or power.
 
-Being able to generate a CSV file allows the file to be processed by an app such as Excel or LibreOffice, to do detailed data analysis and visualization.
+Being able to generate a CSV file allows the file to be processed by an app such as Excel or LibreOffice, to do a detailed analysis and visualization of the data.
 
 The SHIZ file is the control file used by the FulGaz app for its virtual routes.
 
 ## Building the tool
 
-To build the gpxFileTool binary all you need to do is run 'make' at the top-level directory.
+To build the actFileTool binary all you need to do is run 'make' at the top-level directory. The tool is known to build warning and error free under Ubuntu, macOS, and Cygwin. As it is written entirely in C and only uses the standard math library, it should be easy to port to other platforms.
 
 ```
 $ make
-cc -D_GNU_SOURCE -I. -ggdb -Wall -Werror -O3 -o main.o -c main.c
-rm -f build_info.c
-/bin/sh -ec 'echo "const char *buildInfo = \"built on `date` by `whoami`@`hostname`\";" >> build_info.c'
-cc -D_GNU_SOURCE -I. -ggdb -Wall -Werror -O3 -o ./build_info.o -c build_info.c
-rm -f build_info.c
-cc -ggdb  -o ./gpxFileTool ./main.o ./build_info.o -lm
+cc -m64 -D_GNU_SOURCE -I. -I./fit -ggdb -Wall -Werror -O0 -o const.o -c const.c
+cc -m64 -D_GNU_SOURCE -I. -I./fit -ggdb -Wall -Werror -O0 -o input.o -c input.c
+cc -m64 -D_GNU_SOURCE -I. -I./fit -ggdb -Wall -Werror -O0 -o main.o -c main.c
+cc -m64 -D_GNU_SOURCE -I. -I./fit -ggdb -Wall -Werror -O0 -o output.o -c output.c
+cc -m64 -D_GNU_SOURCE -I. -I./fit -ggdb -Wall -Werror -O0 -o trkpt.o -c trkpt.c
+cc -ggdb  -o ./gpxFileTool ./const.o ./input.o ./main.o ./output.o ./trkpt.o -lm
 ```
-The tool is known to build warning and error free under Ubuntu, OS/X, and Cygwin.
 
 ## About GPX Files
 
@@ -79,7 +79,7 @@ The latitude and longitude values are expressed in decimal degrees, the elevatio
 
 TCX files are plain text files that use XML encoding based on the following [data schema](https://www8.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd).
 
-In a nutshell, a TCX file contains an "activity", which contains one or more "laps", which contain a "track", which contains the actual "track points". One significant difference between TCX and GPX is that the TCX track point includes two extra metrics: <DistanceMeters> which is the distance (in meters) from the start, and <Speed> which is the current speed (in meters per second).
+In a nutshell, a TCX file contains an "activity", which contains one or more "laps", which contain a "track", which contains the actual "track points". One significant difference between TCX and GPX is that the TCX track point includes two extra metrics: &lt;DistanceMeters&gt; which is the distance (in meters) from the start, and &lt;Speed&gt; which is the current speed (in meters per second).
 
 Below you can see a clip from a TCX ride showing the general structure of the data:
 
@@ -131,6 +131,10 @@ OPTIONS:
         output file inherits the activity type of the input file.
     --close-gap <point>
         Close the time gap at the specified track point.
+    --csv-time-format {hms|sec|utc}
+        Specifies the format of the timestamp value in the CSV output.
+        'hms' and 'sec' imply relative timestamps, while 'utc' implies
+        absolute timestamps.
     --help
         Show this help and exit.
     --max-grade <value>
@@ -139,12 +143,18 @@ OPTIONS:
     --max-grade-change <value>
         Limit the maximum change in grade between points to the specified
         value. The elevation values are adjusted accordingly.
+    --max-speed-change <value>
+        Limit the maximum change in speed between points to the specified
+        value.
     --min-grade <value>
         Limit the minimum grade to the specified value. The elevation
         values are adjusted accordingly.
     --name <name>
         String to use for the <name> tag of the track in the output
         file.
+    --no-elev-adj
+        Do not auto-adjust the elevation values when the grade values are
+        modified.
     --output-file <name>
         Write the output data into the specified file. If not specified
         the output data is written to standard output.
@@ -163,9 +173,6 @@ OPTIONS:
     --range <a,b>
         Limit the track points to be processed to the range between point
         'a' and point 'b', inclusive.
-    --rel-time {sec|hms}
-        Use relative timestamps in the CSV output, using the specified
-        format.
     --set-speed <avg-speed>
         Use the specified average speed value (in km/h) to generate missing
         timestamps, or to replace the existing timestamps, in the input file.
@@ -185,13 +192,14 @@ OPTIONS:
     --version
         Show version information and exit.
     --xma-method {simple|weighed}
-        Specifies the type of Moving Average to compute: SMA or WMA.    
-    --xma-metric {elevation|grade|power}
+        Specifies the type of Moving Average to compute: SMA or WMA.
+    --xma-metric {elevation|grade|power|speed}
         Specifies the metric to be smoothed out by the selected Moving
         Average method.
     --xma-window <size>
         Size of the window used to compute the selected Moving Average.
         It must be an odd value.
+
 ```
 
 #### Example 1
@@ -199,7 +207,7 @@ OPTIONS:
 In this example we process a GPX file created by a Wahoo Elemnt BOLT bike computer, and simply print a summary of its data.
 
 ```
-$ gpxFileTool --summary SampleGpxFiles/WahooElmntBolt.gpx
+$ actFileTool --summary SampleGpxFiles/WahooElmntBolt.gpx
 INFO: Discarding duplicate TrkPt #9 (SampleGpxFiles/WahooElmntBolt.gpx:82) !
 INFO: Discarding duplicate TrkPt #10 (SampleGpxFiles/WahooElmntBolt.gpx:91) !
 INFO: Discarding duplicate TrkPt #11 (SampleGpxFiles/WahooElmntBolt.gpx:100) !
@@ -234,7 +242,7 @@ The informational messages about the duplicate track points indicate that the bi
 
 
 ```
-$ gpxFileTool --quiet --summary SampleGpxFiles/WahooElmntBolt.gpx
+$ actFileTool --quiet --summary SampleGpxFiles/WahooElmntBolt.gpx
     numTrkPts: 154
  numDupTrkPts: 10
 numTrimTrkPts: 0
@@ -260,8 +268,8 @@ numDiscTrkPts: 0
 There are situations in which one wants to turn a GPX *route* into a GPX *ride*.  For example, imagine you rode your bike for a couple of hours and at the end of the ride you realize you forgot to start your bike computer. Doh!  In this case you can use a mapping app (such as RideWithGPS) to draw the route you rode, export it as a GPX route file, and then add timing data to the GPX route to turn it into a ride, so that it can be uploaded to your Strava account to get distance and elevation gain credits for it.  In this example we take a manually created route, and we turn it into a ride using the current date and time as the activity's start time, and an average speed of 12.5 km/h:
 
 ```
-$ gpxFileTool --start-time now --set-speed 12.5 SampleGpxFiles/TrailCreekEoP_RWGPS_Route.gpx > outFiles/TrailCreekEoP_RWGPS_Ride.gpx
-$ gpxFileTool --summary outFiles/TrailCreekEoP_RWGPS_Ride.gpx
+$ actFileTool --start-time now --set-speed 12.5 SampleGpxFiles/TrailCreekEoP_RWGPS_Route.gpx > outFiles/TrailCreekEoP_RWGPS_Ride.gpx
+$ actFileTool --summary outFiles/TrailCreekEoP_RWGPS_Ride.gpx
     numTrkPts: 93
  numDupTrkPts: 0
 numTrimTrkPts: 0
@@ -285,8 +293,8 @@ numDiscTrkPts: 0
 Notice the high (29.50%) maximum grade value. This is often a by product of poor elevation data in the GPX route file.  This problem can be corrected using the Simple Moving Average (SMA) algorithm, to smooth out the grade values.  Below we use an SMA window size of 5 points, which brings the maximum grade value from 29.50% down to 13.05%.  Notice that the elevation values are adjusted accordingly, leading to a smaller total elevation gain:
 
 ```
-$ gpxFileTool --start-time now --set-speed 12.5 --sma-metric grade --sma-window 5 SampleGpxFiles/TrailCreekEoP_RWGPS_Route.gpx > outFiles/TrailCreekEoP_RWGPS_Ride.gpx
-$ gpxFileTool --summary outFiles/TrailCreekEoP_RWGPS_Ride.gpx
+$ actFileTool --start-time now --set-speed 12.5 --sma-metric grade --sma-window 5 SampleGpxFiles/TrailCreekEoP_RWGPS_Route.gpx > outFiles/TrailCreekEoP_RWGPS_Ride.gpx
+$ actFileTool --summary outFiles/TrailCreekEoP_RWGPS_Ride.gpx
     numTrkPts: 93
  numDupTrkPts: 0
 numTrimTrkPts: 0
@@ -314,7 +322,7 @@ To illustrate the effect of using SMA to smooth out the grade, this [graph](http
 In this example we instruct the tool to generate a Comma-Separated-Value (CSV) output file, so that the file can be loaded into a spreadsheet app (such as Excel or Libre Office Calc) for further analysis and data visualization:
 
 ```
-$ gpxFileTool --quiet --output-format csv SampleGpxFiles/WahooElmntBolt.gpx > outFiles/WahooElmntBolt.csv
+$ actFileTool --quiet --output-format csv SampleGpxFiles/WahooElmntBolt.gpx > outFiles/WahooElmntBolt.csv
 ```
 The CSV output file looks like this:
 
@@ -339,7 +347,7 @@ And this [screenshot](https://drive.google.com/file/d/1w4DPMP_rp_gmzHq6_NTPFvKDd
 In this example we stitch together two GPX files from the same activity. This is a common situation when, for example, a long out-and-back ride is interrupted at the turn around point (e.g. to stop for lunch) and the GPS device is stopped to save battery.
 
 ```
-$ gpxFileTool --summary SampleGpxFiles/Afternoon_Hike_1of2.gpx
+$ actFileTool --summary SampleGpxFiles/Afternoon_Hike_1of2.gpx
     numTrkPts: 219
  numDupTrkPts: 0
 numTrimTrkPts: 0
@@ -359,7 +367,7 @@ numDiscTrkPts: 0
      maxGrade: 14.88% at TrkPt #41 (SampleGpxFiles/Afternoon_Hike_1of2.gpx:170) : time = 41 s, distance = 0.038 km, run = 0.672 m, rise = 0.100 m
      minGrade: -6.96% at TrkPt #121 (SampleGpxFiles/Afternoon_Hike_1of2.gpx:490) : time = 121 s, distance = 0.161 km, run = 1.437 m, rise = -0.100 m
 
-$ gpxFileTool --summary SampleGpxFiles/Afternoon_Hike_2of2.gpx
+$ actFileTool --summary SampleGpxFiles/Afternoon_Hike_2of2.gpx
     numTrkPts: 200
  numDupTrkPts: 0
 numTrimTrkPts: 0
@@ -379,8 +387,8 @@ numDiscTrkPts: 0
      maxGrade: 9.49% at TrkPt #15 (SampleGpxFiles/Afternoon_Hike_2of2.gpx:66) : time = 16 s, distance = 0.042 km, run = 1.053 m, rise = 0.100 m
      minGrade: -8.40% at TrkPt #163 (SampleGpxFiles/Afternoon_Hike_2of2.gpx:658) : time = 164 s, distance = 0.284 km, run = 1.190 m, rise = -0.100 m
 
-$ gpxFileTool SampleGpxFiles/Afternoon_Hike_1of2.gpx SampleGpxFiles/Afternoon_Hike_2of2.gpx > outFiles/Afternoon_Hike_Combined.gpx
-$ gpxFileTool --summary outFiles/Afternoon_Hike_Combined.gpx
+$ actFileTool SampleGpxFiles/Afternoon_Hike_1of2.gpx SampleGpxFiles/Afternoon_Hike_2of2.gpx > outFiles/Afternoon_Hike_Combined.gpx
+$ actFileTool --summary outFiles/Afternoon_Hike_Combined.gpx
     numTrkPts: 419
  numDupTrkPts: 0
 numTrimTrkPts: 0
@@ -406,7 +414,7 @@ numDiscTrkPts: 0
 In this example we process a GPX file, removing the cadence, heart rate, and power metrics, and create a new TCX file:
 
 ```
-$ gpxFileTool --quiet --output-filter 0x0f --output-format tcx SampleGpxFiles/FulGaz_Col_de_la_Madone.gpx > outFiles/FulGaz_Col_de_la_Madone.tcx
+$ actFileTool --quiet --output-filter 0x0f --output-format tcx SampleGpxFiles/FulGaz_Col_de_la_Madone.gpx > outFiles/FulGaz_Col_de_la_Madone.tcx
 
 ```     
 

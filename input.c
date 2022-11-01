@@ -110,12 +110,13 @@ int parseCsvFile(CmdArgs *pArgs, GpsTrk *pTrk, const char *inFile)
             }
         }
 
-        // Parse the columns: "<time>,<lat>,<lon>,<ele>,<power>,<atemp>,<cadence>,<hr>,<run>,<rise>,<dist>,<distance>,<speed>,<grade>"
-        if (sscanf(p, "%ld,%le,%le,%le,%d,%d,%d,%d,%le,%le,%le,%le,%le,%le",
+        // Parse the columns: "<time>,<latitude>,<longitude>,<elevation>,<distance>,<speed>,<power>,<ambTemp>,<cadence>,<heartRate>,<run>,<rise>,<dist>,<grade>"
+        if (sscanf(p, "%ld,%le,%le,%le,%le,%le,%d,%d,%d,%d,%le,%le,%le,%le",
                    &timestamp, &pTrkPt->latitude, &pTrkPt->longitude, &pTrkPt->elevation,
+                   &distance, &speed,
                    &pTrkPt->power, &pTrkPt->ambTemp, &pTrkPt->cadence, &pTrkPt->heartRate,
                    &dummy, &dummy, &dummy,
-                   &distance, &speed, &pTrkPt->grade) != 14) {
+                   &pTrkPt->grade) != 14) {
             fprintf(stderr, "Failed to parse line: %s !!!\n", p);
             return -1;
         }
