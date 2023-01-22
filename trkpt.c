@@ -21,7 +21,8 @@
 
 TrkPt *nxtTrkPt(TrkPt **p1, TrkPt *p2)
 {
-    *p1 = p2;
+    if (p1 != NULL)
+        *p1 = p2;
     return TAILQ_NEXT(p2, tqEntry);
 }
 

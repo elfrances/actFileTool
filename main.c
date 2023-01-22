@@ -13,11 +13,11 @@
  *   base is the horizontal distance "run", the height is the vertical
  *   distance "rise", and the hypotenuse is the actual distance traveled
  *   between the two points. The figure is not an exact triangle, because
- *   the "run" is not a straight line, but the great-circle distance over
- *   the Earth's surface. But when the two points are "close together",
- *   as during a slow speed activity like cycling, we can assume the run
- *   is a straight line, and hence we are dealing with a rectangular
- *   triangle.
+ *   the "run" is not a straight line, but rather the great-circle distance
+ *   over the Earth's surface. But when the two points are "close together",
+ *   as during a slow speed activity like cycling, when the sample points
+ *   are spaced apart by just 1 second, we can assume the run is a straight
+ *   line, and hence we are dealing with a rectangular triangle.
  *
  *                                 + P2
  *                                /|
@@ -153,7 +153,9 @@ static const char *help =
         "    --trim <a,b>\n"
         "        Trim all the points in the specified range. The timestamps of\n"
         "        the points after point 'b' are adjusted accordingly, to avoid\n"
-        "        a discontinuity in the time sequence.\n"
+        "        a discontinuity in the time sequence. If point 'a' happens to be\n"
+        "        the first point in the track, then the start time of the activity\n"
+        "        is adjusted as well.\n"
         "    --verbatim\n"
         "        Process the input file(s) verbatim, without making any adjust-\n"
         "        ments to the data.\n"
@@ -417,19 +419,75 @@ static int parseArgs(int argc, char **argv, CmdArgs *pArgs)
     return n;
 }
 
-static int checkTrkPts(GpsTrk *pTrk, CmdArgs *pArgs)
+static TrkPt *trimTrkPts(GpsTrk *pTrk, CmdArgs *pArgs)
 {
-    TrkPt *p1 = TAILQ_FIRST(&pTrk->trkPtList);  // previous TrkPt
-    TrkPt *p2 = TAILQ_NEXT(p1, tqEntry);    // current TrkPt
+    TrkPt *p = TAILQ_FIRST(&pTrk->trkPtList);
     Bool discTrkPt = false;
     Bool trimTrkPts = false;
     double trimmedTime = 0.0;
     double trimmedDistance = 0.0;
     TrkPt *p0 = NULL;
 
+    // Discard any points in the specified trim range
+    while (p != NULL) {
+        discTrkPt = false;
+
+        // Do we need to trim out this TrkPt?
+        if (p->index == pArgs->trimFrom) {
+            // Start trimming
+            if (!pArgs->quiet) {
+                fprintf(stderr, "INFO: start trimming at TrkPt #%d (%s)\n", p->index, fmtTrkPtIdx(p));
+            }
+            trimTrkPts = true;
+            pTrk->numTrimTrkPts++;
+            discTrkPt = true;
+            p0 = p; // set baseline
+        } else if (p->index == pArgs->trimTo) {
+            // Stop trimming
+            if (!pArgs->quiet) {
+                fprintf(stderr, "INFO: stop trimming at TrkPt #%d (%s)\n", p->index, fmtTrkPtIdx(p));
+            }
+            trimTrkPts = false;
+            trimmedTime = p->timestamp - p0->timestamp;     // total time trimmed out
+            trimmedDistance = p->distance - p0->distance;   // total distance trimmed out
+            pTrk->numTrimTrkPts++;
+            discTrkPt = true;
+        } else if (trimTrkPts) {
+            // Trim this point
+            pTrk->numTrimTrkPts++;
+            discTrkPt = true;
+        }
+
+        // Discard?
+        if (discTrkPt) {
+            // Remove this TrkPt from the list
+            p = remTrkPt(pTrk, p);
+        } else {
+            // If we trimmed out some previous TrkPt's, then we
+            // need to adjust the timestamp and distance values
+            // of this TrkPt so as to "close the gap".
+            if (p0 != NULL) {
+                p->timestamp -= trimmedTime;
+                p->distance -= trimmedDistance;
+            }
+            p = nxtTrkPt(NULL, p);
+        }
+    }
+
+    return TAILQ_FIRST(&pTrk->trkPtList);
+}
+
+static int checkTrkPts(GpsTrk *pTrk, CmdArgs *pArgs)
+{
+    TrkPt *p1 = TAILQ_FIRST(&pTrk->trkPtList);  // previous TrkPt
+    TrkPt *p2 = TAILQ_NEXT(p1, tqEntry);    // current TrkPt
+    Bool discTrkPt = false;
+    double trimmedTime = 0.0;
+    double trimmedDistance = 0.0;
+    TrkPt *p0 = NULL;
+
     while (p2 != NULL) {
-        // Discard any duplicate points, and any points
-        // in the specified trim range ...
+        // Discard any duplicate points...
         discTrkPt = false;
 
         // Without elevation data, there isn't much we can do!
@@ -487,34 +545,6 @@ static int checkTrkPts(GpsTrk *pTrk, CmdArgs *pArgs)
 
                 // Discard as a dummy
                 pTrk->numDiscTrkPts++;
-                discTrkPt = true;
-            }
-        }
-
-        // Do we need to trim out this TrkPt?
-        if (pArgs->trimFrom) {
-            if (p2->index == pArgs->trimFrom) {
-                // Start trimming
-                if (!pArgs->quiet) {
-                    fprintf(stderr, "INFO: start trimming at TrkPt #%d (%s)\n", p2->index, fmtTrkPtIdx(p2));
-                }
-                trimTrkPts = true;
-                pTrk->numTrimTrkPts++;
-                discTrkPt = true;
-                p0 = p1;    // set baseline
-            } else if (p2->index == pArgs->trimTo) {
-                // Stop trimming
-                if (!pArgs->quiet) {
-                    fprintf(stderr, "INFO: stop trimming at TrkPt #%d (%s)\n", p2->index, fmtTrkPtIdx(p2));
-                }
-                trimTrkPts = false;
-                trimmedTime = p2->timestamp - p0->timestamp;    // total time trimmed out
-                trimmedDistance = p2->distance - p0->distance;  // total distance trimmed out
-                pTrk->numTrimTrkPts++;
-                discTrkPt = true;
-            } else if (trimTrkPts) {
-                // Trim this point
-                pTrk->numTrimTrkPts++;
                 discTrkPt = true;
             }
         }
@@ -1371,9 +1401,15 @@ int main(int argc, char **argv)
         gpsTrk.timeOffset = cmdArgs.startTime - pTrkPt->timestamp;
     }
 
+    // If the user requested to trim out a range of TrkPt's
+    // do it now...
+    if (cmdArgs.trimFrom) {
+        pTrkPt = trimTrkPts(&gpsTrk, &cmdArgs);
+    }
+
     // Now run some consistency checks on all the TrkPt's
     if (checkTrkPts(&gpsTrk, &cmdArgs) != 0) {
-        fprintf(stderr, "Failed to trim/delete TrkPt's\n");
+        fprintf(stderr, "Failed to delete TrkPt's\n");
         return -1;
     }
 
@@ -1391,7 +1427,7 @@ int main(int argc, char **argv)
     }
 
     // At this point gpsTrk.trkPtList contains all the track
-    // points from all the GPX/TCX input files...
+    // points from all the GPX/TCX/FIT input files...
 
     if (cmdArgs.closeGap) {
         // Close the time gap at the specified track
