@@ -1,7 +1,7 @@
 # actFileTool
 
 ## Intro
-actFileTool is a simple command-line tool for manipulating activity files such as FIT/GPX/TCX. While it is generic enough to work with any type of activity, it was developed mainly to process files from *cycling* activities recorded by devices such as a Garmin Edge or Wahoo Elemnt bike computer, or by mobile apps such as Strava or RideWithGps.
+actFileTool is a simple command-line app for manipulating activity files such as FIT/GPX/TCX. While it is generic enough to work with any type of activity, it was developed mainly to process files from *cycling* activities recorded by devices such as a Garmin Edge or Wahoo Elemnt bike computer, or by mobile apps such as Strava or RideWithGps.
  
 The GPS elevation data in these files can be subject to significant errors, which result in incorrect values for the total elevation gain/loss of the ride, and in incorrect values for the grade level (slope) during a climb or descent segment of the ride.  
 
@@ -9,7 +9,7 @@ Having an incorrect value for the total elevation gain/loss simply skews one's o
 
 One of the design goals for the actFileTool is to allow the user to correct these errors, so that the virtual ride on the smart trainer is more realistic. 
 
-The tool has the following features:
+The app has the following features:
 
 1. Can read FIT/GPX/TCX files.
 2. Can trim out a range of points.
